@@ -1,7 +1,5 @@
 // Specimen 03 "THE WATCHER": drifts through walls toward flashlights.
-import * as THREE from 'three';
 import { Monster } from './base.js';
-import { uniqueMaterials } from '../assets.js';
 
 export class Ghost extends Monster {
   static id = 'ghost';
@@ -13,25 +11,26 @@ export class Ghost extends Monster {
   };
 
   constructor(world) {
-    super(world, ['bacteria-pill', 'character-ghost'], { height: 1.8, radius: 0.45, passWalls: true, eyeColor: 0xd8ffff });
+    super(world, ['bacteria-pill'], { height: 2.65, radius: 0.45, passWalls: true });
     this.mats = [];
-    if (this.custom) {
-      this.resize(2.0);
-    } else {
-      // Kenney ghost: translucent and glowing.
-      for (const m of uniqueMaterials(this.model)) {
+    if (!this.custom) {
+      // A solid-looking, lightless shape that slips in and out of the haze.
+      const materials = new Set();
+      this.model.traverse((o) => {
+        if (o.isMesh) for (const m of Array.isArray(o.material) ? o.material : [o.material]) materials.add(m);
+      });
+      for (const m of materials) {
         m.transparent = true;
-        m.opacity = 0.55;
+        m.opacity = 0.84;
         m.depthWrite = false;
-        m.emissive = new THREE.Color(0x4fb8c8);
-        m.emissiveIntensity = 0.5;
+        this.mats.push(m);
       }
-      this.model.traverse((o) => o.isMesh && this.mats.push(o.material));
     }
     this.wanderTarget = null;
   }
 
   update(dt) {
+    if (this.updateStatus(dt)) return;
     const world = this.world;
     this.cooldown -= dt;
 
@@ -57,8 +56,8 @@ export class Ghost extends Monster {
     if (this.cooldown <= 0) this.tryCatch();
 
     const t = world.time;
-    this.group.position.y = 0.25 + Math.sin(t * 2) * 0.12;
-    for (const m of this.mats) m.opacity = 0.4 + 0.18 * Math.sin(t * 3.1);
+    this.group.position.y = 0.12 + Math.sin(t * 1.3) * 0.06;
+    for (const m of this.mats) m.opacity = 0.80 + 0.09 * Math.sin(t * 2.1);
     this.anim.update(dt);
     this.group.position.x = this.pos.x;
     this.group.position.z = this.pos.z;

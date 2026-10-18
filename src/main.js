@@ -5,17 +5,22 @@ import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { Hud } from './hud.js';
 import { Fx } from './fx.js';
+import { Film } from './film.js';
+import { Jumpscares } from './jumpscare.js';
+import { Encounters } from './encounters.js';
+import { Gadgets } from './gadgets.js';
 import { Level } from './level.js';
 import { Player } from './player.js';
 import { Item, spawnLoot, SOUL_TYPE } from './loot.js';
 import { Skeleton } from './entities/skeleton.js';
 import { Zombie } from './entities/zombie.js';
 import { Ghost } from './entities/ghost.js';
+import { Spider, Lizard, ThiefBug, Mimic } from './entities/facility-creatures.js';
 import { bossLine } from './boss.js';
 import { makeRng } from './rng.js';
-import { FLASH, NIGHT, NOISE, quotaForFloor, monstersForFloor } from './config.js';
+import { CELL, FLASH, NIGHT, NOISE, quotaForFloor, monstersForFloor } from './config.js';
 
-const SPECIES = { skeleton: Skeleton, zombie: Zombie, ghost: Ghost };
+const SPECIES = { skeleton: Skeleton, zombie: Zombie, ghost: Ghost, spider: Spider, lizard: Lizard, thief: ThiefBug, mimic: Mimic };
 const params = new URLSearchParams(location.search);
 const $ = (s) => document.querySelector(s);
 
@@ -29,21 +34,33 @@ const UPGRADES = [
 class Game {
   constructor() {
     this.canvas = $('#game');
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.toneMappingExposure = 1.12;
+    this.film = new Film(this.renderer);
+    this.picture = { brightness: 1, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
+    try {
+      const saved = JSON.parse(localStorage.getItem('grimco-picture'));
+      if (saved) {
+        this.picture.brightness = Math.max(0.7, Math.min(1.6, Number(saved.brightness) || 1));
+        this.picture.reduced = this.picture.reduced || !!saved.reduced;
+      }
+    } catch { /* Storage is optional in private browsing. */ }
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x020203);
-    this.scene.fog = new THREE.FogExp2(0x030305, 0.06);
-    this.scene.add(new THREE.AmbientLight(0x7078a0, 0.3));
+    this.scene.background = new THREE.Color(0x050706);
+    this.scene.fog = new THREE.FogExp2(0x090c0a, 0.045);
+    this.scene.add(new THREE.AmbientLight(0x8c9580, 0.16));
 
     this.input = new Input(this.canvas);
     this.sound = new Sound();
+    this.jumpscares = new Jumpscares(this);
+    this.gadgets = new Gadgets(this);
+    this.encounters = null;
     this.hud = new Hud();
     this.fx = new Fx(this.scene);
     this.clockRaf = new THREE.Clock();
@@ -94,6 +111,19 @@ class Game {
   // ---------- UI wiring ----------
 
   bindUi() {
+    const savePicture = () => {
+      try { localStorage.setItem('grimco-picture', JSON.stringify(this.picture)); } catch { /* Optional. */ }
+      for (const el of document.querySelectorAll('[data-brightness]')) el.value = this.picture.brightness;
+      for (const el of document.querySelectorAll('[data-reduced]')) el.checked = this.picture.reduced;
+    };
+    for (const el of document.querySelectorAll('[data-brightness]')) {
+      el.value = this.picture.brightness;
+      el.addEventListener('input', () => { this.picture.brightness = Number(el.value); savePicture(); });
+    }
+    for (const el of document.querySelectorAll('[data-reduced]')) {
+      el.checked = this.picture.reduced;
+      el.addEventListener('change', () => { this.picture.reduced = el.checked; savePicture(); });
+    }
     $('#btn-1p').addEventListener('click', () => this.startRun(1));
     $('#btn-2p').addEventListener('click', () => this.startRun(2));
     $('#btn-notice').addEventListener('click', () => this.closeNotice());
@@ -146,6 +176,7 @@ class Game {
     this.clearFloor();
     this.level = new Level(1, 4242);
     this.level.build(this.scene);
+    this.level.group.getObjectByName('lift-wayfinding').visible = false;
     const lp = this.level.liftPos;
     const sk = new Skeleton(this);
     sk.place({ x: lp.x + 2.2, z: lp.z + 1.2 });
@@ -185,6 +216,10 @@ class Game {
   }
 
   clearFloor() {
+    this.gadgets.clear();
+    this.encounters?.dispose();
+    this.encounters = null;
+    this.jumpscares.dispose();
     for (const it of this.items) it.dispose();
     for (const m of this.monsters) m.dispose();
     for (const m of this.titleMonsters || []) m.dispose();
@@ -226,13 +261,18 @@ class Game {
       p.spawn(lp.x + (this.players.length > 1 ? (i ? 0.6 : -0.6) : 0), lp.z, yaw);
     });
 
+    this.encounters = new Encounters(this);
+    this.encounters.generate();
     this.items = spawnLoot(this, this.rng, this.quota);
     for (const id of monstersForFloor(floor)) {
       const m = new SPECIES[id](this);
-      const spot = this.level.takeSpot(this.rng, { minLiftDist: 20, farthest: true }) || this.level.randomFloorPoint(this.rng);
+      const spot = (id === 'spider' ? this.spiderPerch() : null)
+        || this.level.takeSpot(this.rng, { minLiftDist: 20, farthest: true }) || this.level.randomFloorPoint(this.rng);
       m.place(spot);
       this.monsters.push(m);
     }
+
+    this.jumpscares.prepare(this.monsters, this.players);
 
     this.hud.setup(this.players, this.numPlayers === 1);
     this.hud.show(true);
@@ -244,6 +284,24 @@ class Game {
     fresh.forEach((id) => this.seen.add(id));
     if (fresh.length && !this.skipNotice) this.showNotice(fresh);
     else this.beginFloor();
+  }
+
+  spiderPerch() {
+    const level = this.level;
+    const candidates = [];
+    for (const [x, z] of level.floorCells) {
+      if (level.occupied.has(z * level.W + x) || level.liftField[z * level.W + x] * CELL < 18) continue;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (level.isWallCell(x + dx, z + dz)) candidates.push({ x, z, dx, dz });
+      }
+    }
+    if (!candidates.length) return null;
+    const perch = this.rng.pick(candidates);
+    level.occupied.add(perch.z * level.W + perch.x);
+    const pos = level.cellCenter(perch.x, perch.z);
+    pos.x += perch.dx * (CELL * 0.5 - 0.7);
+    pos.z += perch.dz * (CELL * 0.5 - 0.7);
+    return pos;
   }
 
   facingOutOfLift() {
@@ -272,6 +330,9 @@ class Game {
         quota before <b>midnight</b>. Loot cracks when it hits walls, and every crack costs you.</p>
         <p>Coffins are heavy: ${this.numPlayers > 1 ? 'grab one together to carry it properly.' : 'you can drag one, slowly.'}
         The lift is safe ground. Nothing follows you onto it.</p>
+        <p><b>Hide:</b> ${this.numPlayers > 1 ? 'Q / Backspace' : 'Q'} at lockers or worktables. Set down loot first;
+        keep your light off and get out of sight before entering. <b>Map:</b> ${this.numPlayers > 1 ? 'Tab / &#92;' : 'Tab'}.
+        Follow the elevator arrow home. Reading the map does not stop the clock.</p>
       </div>` : '';
     $('#notice-floor').textContent = `HOLLOWMERE CATACOMBS · LEVEL B${this.floor}`;
     $('#notice-body').innerHTML = orientation + cards;
@@ -358,6 +419,7 @@ class Game {
 
   fired(reason) {
     if (this.state === 'gameover') return;
+    this.jumpscares.clear();
     this.state = 'gameover';
     this.gameoverReady = false;
     setTimeout(() => { this.gameoverReady = true; }, 1200);
@@ -379,6 +441,7 @@ class Game {
   }
 
   toTitle() {
+    this.sound.setPaused(false);
     this.input.releasePointerLock();
     this.hud.show(false);
     for (const p of this.players) p.dispose();
@@ -391,6 +454,7 @@ class Game {
   }
 
   setPaused(on) {
+    this.sound.setPaused(on);
     if (on) {
       this.state = 'paused';
       this.pausedAt = performance.now();
@@ -404,8 +468,8 @@ class Game {
 
   // ---------- world API used by players / loot / monsters ----------
 
-  emitNoise(x, z, r, kind) {
-    this.noises.push({ id: ++this.noiseId, x, z, r, t: this.time, kind });
+  emitNoise(x, z, r, kind, source = null) {
+    this.noises.push({ id: ++this.noiseId, x, z, r, t: this.time, kind, source });
     const listener = this.monsters.some((m) => m instanceof Zombie);
     if (listener && kind !== 'walk') {
       const color = kind === 'sprint' ? 0x8fd14f : kind === 'shatter' || kind === 'crack' ? 0xff5a3a : 0xffffff;
@@ -414,10 +478,18 @@ class Game {
   }
 
   soundAt(pos, play, maxDist) {
-    let d = Infinity;
-    for (const p of this.players) d = Math.min(d, Math.hypot(p.pos.x - pos.x, p.pos.z - pos.z));
+    let d = Infinity, listener = null;
+    for (const p of this.players) {
+      if (!p.alive) continue;
+      const distance = Math.hypot(p.pos.x - pos.x, p.pos.z - pos.z);
+      if (distance < d) { d = distance; listener = p; }
+    }
     const v = 1 - d / maxDist;
-    if (v > 0.03) play(v);
+    if (v > 0.03) {
+      const pan = this.players.length === 1 && d > 0.01
+        ? (-(pos.x - listener.pos.x) * Math.cos(listener.yaw) + (pos.z - listener.pos.z) * Math.sin(listener.yaw)) / d : 0;
+      this.sound.withPan(pan, () => play(v));
+    }
   }
 
   isLitBy(player, point) {
@@ -431,12 +503,44 @@ class Game {
     return this.level.lineOfSight(player.pos.x, player.pos.z, point.x, point.z);
   }
 
+  interactionCandidate(p) {
+    if (!p.alive || p.hidingSpot || p.mapOpen || p.holding || p.webbedBy) return null;
+    const reachable = (pos) => {
+      const dx = pos.x - p.pos.x, dz = pos.z - p.pos.z, distance = Math.hypot(dx, dz);
+      return distance <= 2 && (distance < 0.65 || (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / distance > 0.30)
+        && this.level.lineOfSight(p.pos.x, p.pos.z, pos.x, pos.z);
+    };
+    for (const partner of this.players) {
+      if (partner !== p && partner.alive && partner.webbedBy && reachable(partner.pos)) {
+        return { pos: partner.pos, label: `cut ${partner.name} free`, kind: 'rescue', target: partner.webbedBy };
+      }
+    }
+    for (const monster of this.monsters) {
+      if (monster instanceof ThiefBug && monster.treasure && reachable(monster.pos)) {
+        return { pos: monster.pos, label: 'recover stolen treasure', kind: 'recover', target: monster };
+      }
+    }
+    const candidate = this.encounters?.candidate(p);
+    return candidate ? { ...candidate, label: `${candidate.action.toLowerCase()} ${candidate.label.toLowerCase()}` } : null;
+  }
+
+  awakenMimic(chest) {
+    const mimic = new Mimic(this);
+    mimic.activate(chest.pos, chest.yaw);
+    this.monsters.push(mimic);
+    // Build its attack shot before it can finish unfolding and catch a player.
+    this.jumpscares.prepare([mimic], this.players);
+    this.soundAt(chest.pos, volume => this.sound.rattle(volume), 18);
+    this.emitNoise(chest.pos.x, chest.pos.z, 15, 'mimic');
+    return mimic;
+  }
+
   grabCandidate(p) {
-    if (!p.alive || p.holding) return null;
+    if (!p.alive || p.holding || p.hidingSpot || p.webbedBy) return null;
     const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
     let best = null, bestScore = Infinity;
     for (const it of this.items) {
-      if (it.gone || it.depositing > 0) continue;
+      if (it.gone || it.depositing > 0 || it.stolenBy) continue;
       if (it.holders.length && !(it.heavy && it.holders.length < 2)) continue;
       const dx = it.pos.x - p.pos.x, dz = it.pos.z - p.pos.z;
       const d = Math.hypot(dx, dz);
@@ -450,9 +554,17 @@ class Game {
   }
 
   toggleGrab(p) {
-    if (!p.alive) return;
+    if (!p.alive || p.hidingSpot) return;
+    if (p.webbedBy) { p.webbedBy.rescue(p); return; }
     if (p.holding) {
       this.release(p);
+      return;
+    }
+    const interaction = this.interactionCandidate(p);
+    if (interaction) {
+      if (interaction.kind === 'rescue') interaction.target.rescue(p);
+      else if (interaction.kind === 'recover') interaction.target.recover(p);
+      else this.encounters.interact(p);
       return;
     }
     const it = this.grabCandidate(p);
@@ -476,7 +588,39 @@ class Game {
     }
   }
 
+  toggleHide(p) {
+    if (!p.alive || p.webbedBy || p.staggerTime > 0) return false;
+    if (p.hidingSpot) {
+      if (!p.leaveHiding()) {
+        this.hud.popup(p.index, 'The exit is blocked', 'hint');
+        return false;
+      }
+      this.sound.thud(0.12);
+      this.emitNoise(p.pos.x, p.pos.z, 3, 'hide');
+      return true;
+    }
+    const spot = this.level.hidingCandidate(p);
+    if (!spot) return false;
+    if (p.holding) {
+      this.hud.popup(p.index, 'Set down your loot before hiding', 'hint');
+      return false;
+    }
+    const witnessed = this.monsters.some(m => m.canWitnessHiding(p));
+    if (!p.enterHiding(spot, witnessed)) return false;
+    this.sound.thud(0.12);
+    this.emitNoise(p.pos.x, p.pos.z, 3, 'hide');
+    if (witnessed) this.hud.popup(p.index, 'It saw you enter', 'loss');
+    return true;
+  }
+
+  toggleMap(p) {
+    if (!p.alive || p.webbedBy) return;
+    p.mapOpen = !p.mapOpen;
+    this.sound.noiseBurst({ dur: 0.16, freq: 1400, type: 'highpass', vol: 0.035, reverb: false });
+  }
+
   startDeposit(it) {
+    if (it.stolenBy) return;
     for (const h of [...it.holders]) this.release(h);
     it.depositing = 0.7;
     this.fx.sparkle(it.pos, it.type.soul ? 0x9fffe0 : 0xffd36b);
@@ -531,7 +675,7 @@ class Game {
     this.removeItem(it);
   }
 
-  killPlayer(p) {
+  killPlayer(p, monster = null) {
     if (!p.alive) return;
     if (p.holding) {
       const it = p.holding;
@@ -539,7 +683,8 @@ class Game {
       it.damage(25, 'dropped');
     }
     p.kill();
-    this.sound.scare();
+    if (monster) this.jumpscares.start(p, monster);
+    else this.sound.scare();
     this.run.deaths++;
     const others = this.players.filter((o) => o.alive);
     if (this.run.insurance > 0) {
@@ -562,6 +707,7 @@ class Game {
 
   respawn(p) {
     if (p.alive || this.state !== 'playing') return;
+    this.jumpscares.clear(p.index);
     const lp = this.level.liftPos;
     p.spawn(lp.x, lp.z, this.facingOutOfLift());
     p.soulJar = null;
@@ -582,7 +728,10 @@ class Game {
   dangerFor(p) {
     if (!p.alive) return 0;
     let d = Infinity;
-    for (const m of this.monsters) d = Math.min(d, Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z));
+    for (const m of this.monsters) {
+      if (m instanceof ThiefBug || m.isStunned || m instanceof Lizard && m.state === 'wander') continue;
+      d = Math.min(d, Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z));
+    }
     return Math.max(0, 1 - d / 10);
   }
 
@@ -615,7 +764,7 @@ class Game {
 
   // ---------- simulation ----------
 
-  step(dt) {
+  step(dt, attackDt = dt) {
     this.time += dt;
     this.clockTime += dt;
     this.radioCooldown -= dt;
@@ -640,16 +789,22 @@ class Game {
           forward: it.forward || alt.forward, strafe: it.strafe || alt.strafe, turn: it.turn || alt.turn,
           mouseTurn: it.mouseTurn, mouseLook: it.mouseLook, look: it.look || alt.look, sprint: it.sprint || alt.sprint,
           grabPressed: it.grabPressed || alt.grabPressed, flashPressed: it.flashPressed || alt.flashPressed,
+          hidePressed: it.hidePressed || alt.hidePressed, mapPressed: it.mapPressed || alt.mapPressed,
+          stunPressed: it.stunPressed || alt.stunPressed, lurePressed: it.lurePressed || alt.lurePressed,
         };
       }
       if (this.testIntents) it = { ...it, ...this.testIntents[i] };
+      if (it.mapPressed) this.toggleMap(p);
+      if (it.hidePressed) this.toggleHide(p);
       if (it.grabPressed) this.toggleGrab(p);
+      if (it.stunPressed) this.gadgets.useStun(p);
+      if (it.lurePressed) this.gadgets.useLure(p);
       p.carryMul = p.holding ? p.holding.carrySpeed : 1;
       p.update(dt, it);
     });
 
     // Interns don't overlap.
-    if (this.players.length === 2 && this.players[0].alive && this.players[1].alive) {
+    if (this.players.length === 2 && this.players.every(p => p.alive && !p.hidingSpot && !p.webbedBy)) {
       const [a, b] = this.players;
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
       const d = Math.hypot(dx, dz);
@@ -662,7 +817,7 @@ class Game {
 
     for (const it of [...this.items]) {
       it.update(dt);
-      if (it.gone || it.depositing > 0) continue;
+      if (it.gone || it.depositing > 0 || it.stolenBy) continue;
       if (level.inLift(it.pos.x, it.pos.z)) {
         it.inLiftTime += dt;
         if (it.inLiftTime > 0.35) this.startDeposit(it);
@@ -672,12 +827,15 @@ class Game {
     }
 
     for (const p of this.players) p.flicker = 0;
+    this.encounters?.update(dt);
+    this.gadgets.update(dt);
     this.ghostNear = 0;
     for (const m of this.monsters) m.update(dt);
+    this.jumpscares.update(attackDt);
     this.noises = this.noises.filter((n) => this.time - n.t < 1.5);
 
     this.fx.update(dt);
-    level.update(this.time);
+    level.update(this.time, this);
 
     // Heartbeat + whispers.
     const danger = Math.max(0, ...this.players.map((p) => this.dangerFor(p)));
@@ -728,7 +886,7 @@ class Game {
       r.setViewport(0, 0, w, h);
       this.titleCam.aspect = w / h;
       this.titleCam.updateProjectionMatrix();
-      r.render(this.scene, this.titleCam);
+      this.film.render(this.scene, this.titleCam, { width: w, height: h, time: this.time, ...this.picture });
       return;
     }
     const n = this.players.length;
@@ -737,23 +895,42 @@ class Game {
       const vw = w / n;
       r.setViewport(i * vw, 0, vw, h);
       r.setScissor(i * vw, 0, vw, h);
+      const attack = this.jumpscares.get(i);
+      // Attack and facility lights belong to different scenes. Refresh each
+      // scene's shadows so a surviving partner can still move their torch.
+      if (this.jumpscares.active.size) r.shadowMap.needsUpdate = true;
+      if (attack) {
+        attack.camera.aspect = vw / h;
+        attack.camera.updateProjectionMatrix();
+        this.film.render(attack.scene, attack.camera, {
+          index: i, x: i * vw, width: vw, height: h, time: this.time,
+          danger: 1, shock: attack.shock, blackout: attack.blackout, ...this.picture,
+        });
+        return;
+      }
       p.camera.aspect = vw / h;
       p.camera.updateProjectionMatrix();
       // First person: hide your own body (but show your corpse once you're dead).
-      for (const q of this.players) q.body.visible = q !== p || !q.alive;
-      r.render(this.scene, p.camera);
+      for (const q of this.players) q.body.visible = (!q.hidingSpot || q.hidingSpot.kind === 'table') && (q !== p || !q.alive);
+      this.film.render(this.scene, p.camera, {
+        index: i, x: i * vw, width: vw, height: h, time: this.time,
+        danger: this.dangerFor(p), ...this.picture,
+      });
     });
   }
 
   loop() {
     requestAnimationFrame(() => this.loop());
-    const dt = Math.min(0.05, this.clockRaf.getDelta());
+    const frameDt = this.clockRaf.getDelta();
+    const dt = Math.min(0.05, frameDt);
     if (this.state === 'title') {
       this.time += dt;
       this.updateTitle(dt);
     } else if (this.players.length) {
       const live = this.state === 'playing' || this.state === 'descending';
-      if (live) this.step(dt);
+      // Keep the attack cue in real time even when simulation steps are capped.
+      // A long background-tab gap is a suspension, not an unseen attack.
+      if (live) this.step(dt, frameDt > 1 ? dt : frameDt);
       for (const p of this.players) p.updateCamera(live ? dt : 0);
       if (live) this.hud.update(this, dt);
     }

@@ -41,6 +41,7 @@ export class Item {
     this.depositing = 0;
     this.gone = false;
     this.owner = null;          // soul jars: whose soul this is
+    this.stolenBy = null;
 
     this.group = new THREE.Group();
     const { object } = instance(type.model, { maxDim: type.size });
@@ -110,6 +111,13 @@ export class Item {
   update(dt) {
     const world = this.world;
     if (this.gone) return;
+    if (this.stolenBy) {
+      this.stolenBy.lootAnchor(this.pos);
+      this.vel.set(0, 0, 0);
+      this.glint.material.opacity = 0.5;
+      this.sync();
+      return;
+    }
     if (this.depositing > 0) {
       this.depositing -= dt;
       const k = Math.max(0, this.depositing / 0.7);
@@ -206,6 +214,7 @@ export class Item {
   }
 
   dispose() {
+    this.stolenBy?.dropTreasure();
     this.gone = true;
     this.world.scene.remove(this.group);
     this.glint.material.dispose();

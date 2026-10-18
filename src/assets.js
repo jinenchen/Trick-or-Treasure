@@ -1,21 +1,25 @@
-// Loads the Kenney Graveyard Kit models (CC0) plus optional Sketchfab monsters
-// (CC-BY), and hands out scaled clones.
+// Loads the Kenney Graveyard Kit props/interns (CC0) and optional creature GLBs,
+// then hands out scaled clones. Offline enemy rigs live in entities/creature-rigs.js.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 // Optional monster models. Drop the GLB in place and the specimen uses it;
-// if the file is missing the Kenney model is used instead.
+// if the file is missing the original articulated specimen rig is used instead.
 //   yaw: turn the model so it faces +Z (forward), in radians.
 //   shadows: false for very heavy meshes (shadow passes redraw them).
 export const CUSTOM_MODELS = {
+  'blind-seeker': { file: 'assets/models/sketchfab/blind-seeker.glb', yaw: 0, shadows: true },
   bacteria: { file: 'assets/models/sketchfab/bacteria.glb', yaw: 0, shadows: false },
+  'accurate-bacteria': { file: 'assets/models/sketchfab/accurate-bacteria.glb', yaw: 0, shadows: false },
   'human-deer': { file: 'assets/models/sketchfab/human-deer.glb', yaw: 0, shadows: true },
   'bacteria-pill': { file: 'assets/models/sketchfab/bacteria-pill.glb', yaw: 0, shadows: true },
+  // Player model; falls back to the Kenney intern when absent.
+  'business-man': { file: 'assets/models/sketchfab/business-man.glb', yaw: 0, shadows: false },
 };
 
 export const MODEL_NAMES = [
-  'character-keeper', 'character-skeleton', 'character-zombie', 'character-ghost',
+  'character-keeper',
   'pumpkin-carved', 'pumpkin-tall-carved', 'detail-chalice', 'detail-bowl', 'detail-plate',
   'candle-multiple', 'lantern-candle', 'lantern-glass', 'urn-round', 'urn-square',
   'coffin', 'coffin-old', 'gravestone-round', 'gravestone-cross', 'gravestone-broken', 'gravestone-debris',
@@ -57,7 +61,7 @@ export async function loadAssets(onProgress = () => {}) {
     loader.loadAsync(job.file)
       .then((gltf) => store(job.name, gltf, job.opts))
       .catch((err) => {
-        if (job.optional) console.info(`Optional model ${job.name} not found, using the default.`);
+        if (job.optional) console.info(`Optional model ${job.name} unavailable; the procedural specimen remains available.`);
         else console.warn(`Model ${job.name} failed to load, using a placeholder.`, err);
       })
       .finally(() => onProgress(++done / jobs.length)),
@@ -104,7 +108,9 @@ export function instance(name, { height, maxDim, mul = 1 } = {}) {
     object.add(mesh);
     return { object, inner: mesh, animations: [] };
   }
-  const inner = entry.animations.length ? cloneSkinned(entry.scene) : entry.scene.clone(true);
+  // Static skinned GLBs still need independent bones for each player/attack shot.
+  const inner = entry.animations.length || entry.scene.getObjectByProperty('isSkinnedMesh', true)
+    ? cloneSkinned(entry.scene) : entry.scene.clone(true);
   let scale = kitScale * mul;
   if (height) scale = height / entry.size.y;
   if (maxDim) scale = maxDim / Math.max(entry.size.x, entry.size.y, entry.size.z);

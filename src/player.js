@@ -4,10 +4,10 @@ import { PLAYER, FLASH, NOISE, WALL_H } from './config.js';
 
 const EYE_H = 1.42;
 const PITCH_MIN = -1.2, PITCH_MAX = 1.0;
-import { instance, uniqueMaterials, Animator } from './assets.js';
+import { instance, uniqueMaterials, Animator, pickModel, isCustomModel } from './assets.js';
 import { labelTexture } from './textures.js';
 
-export const PLAYER_COLORS = ['#ff9a3c', '#8fc7ff'];
+export const PLAYER_COLORS = ['#c0aa83', '#99b3ad'];
 
 const tmp = new THREE.Vector3();
 
@@ -31,21 +31,45 @@ export class Player {
     this.flicker = 0;           // 0..1, set by nearby ghosts
     this.exhausted = false;
     this.holding = null;
+    this.tools = { stun: 0, lure: 0 };
+    this.webbedBy = null;
+    this.staggerTime = 0;
+    this.trapGrace = 0;
     this.carryMul = 1;
     this.stepTimer = 0;
     this.lowBatteryBeep = 0;
+    this.hidingSpot = null;
+    this.hidingRevealed = false;
+    this.mapOpen = false;
+    this.eyeHeight = EYE_H;
 
     this.group = new THREE.Group();
-    const { object, inner, animations } = instance('character-keeper');
+    // The Sketchfab business man when downloaded, otherwise the Kenney intern.
+    const modelName = pickModel('business-man', 'character-keeper');
+    const custom = isCustomModel(modelName);
+    const { object, inner, animations } = instance(modelName, custom ? { height: 1.75 } : {});
     this.materials = uniqueMaterials(object);
-    if (index === 1) {
-      for (const m of this.materials) m.color.multiply(new THREE.Color(0.7, 0.85, 1.4));
+    for (const m of this.materials) {
+      if (custom) {
+        // Keep the suit's own colors; a faint cool tint tells P2 apart.
+        if (index) m.color?.multiply(new THREE.Color(0.85, 0.9, 1.12));
+      } else {
+        m.color?.multiply(new THREE.Color(index ? 0.60 : 0.78, 0.72, index ? 0.72 : 0.55));
+        if ('roughness' in m) m.roughness = 0.94;
+      }
     }
     // Your own body is hidden in your own view (see Game.render) and casts no
     // shadow, so it never blocks your flashlight.
     object.traverse((o) => { if (o.isMesh) o.castShadow = false; });
-    this.body = object;
-    this.group.add(object);
+    // `body` is what hiding and first-person code scale and hide; `rig` gets
+    // procedural motion when the model has no animations of its own.
+    this.body = new THREE.Group();
+    this.body.add(object);
+    this.rig = object;
+    this.procedural = custom && !animations.length;
+    this.walkPhase = 0;
+    this.deathTime = 0;
+    this.group.add(this.body);
     this.anim = new Animator(inner, animations);
     this.anim.play('idle');
 
@@ -57,19 +81,21 @@ export class Player {
     this.marker.layers.set(10 + index);
     this.group.add(this.marker);
 
-    this.flash = new THREE.SpotLight(FLASH.color, FLASH.intensity, FLASH.range, FLASH.angle, 0.45, 1.25);
+    this.flash = new THREE.SpotLight(FLASH.color, FLASH.intensity, FLASH.range, FLASH.angle, 0.38, 1.25);
+    this.flash.map = flashlightTexture();
     // Beam starts just past the torch in your hand, so the torch isn't lit by its own beam.
     this.flash.position.set(-0.15, EYE_H - 0.15, 0.75);
     this.flash.target.position.set(-0.15, EYE_H - 0.15, 8);
     this.flash.castShadow = true;
-    this.flash.shadow.mapSize.set(512, 512);
+    this.flash.shadow.mapSize.set(1024, 1024);
     this.flash.shadow.camera.near = 0.2;
     this.flash.shadow.camera.far = FLASH.range;
     this.flash.shadow.bias = -0.002;
+    this.flash.shadow.normalBias = 0.025;
     this.group.add(this.flash, this.flash.target);
 
     // Faint glow around each intern so your partner is visible in the dark.
-    this.fill = new THREE.PointLight(index ? 0x7f9cff : 0xffa060, 0.7, 3.5, 2);
+    this.fill = new THREE.PointLight(0xb7bea3, 0.32, 2.8, 2);
     this.fill.position.set(0, 2.2, -0.4);
     this.group.add(this.fill);
 
@@ -81,7 +107,7 @@ export class Player {
     this.camShake = 0;
 
     // Flashlight in your hand, on a layer only your own camera renders.
-    const metal = new THREE.MeshStandardMaterial({ color: 0x4a4852, metalness: 0.5, roughness: 0.45 });
+    const metal = new THREE.MeshStandardMaterial({ color: 0x45493c, metalness: 0.62, roughness: 0.6 });
     const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.02, 0.28, 14), metal);
     grip.rotation.x = Math.PI / 2;
     const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.025, 0.06, 16), metal);
@@ -92,6 +118,12 @@ export class Player {
     this.lens.position.z = -0.2;
     this.viewModel = new THREE.Group();
     this.viewModel.add(grip, bezel, this.lens);
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x1d211c, roughness: 0.96 });
+    for (let i = 0; i < 8; i++) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.023, 0.003, 5, 16), rubber);
+      rib.position.z = -0.09 + i * 0.025;
+      this.viewModel.add(rib);
+    }
     // Lower right, angled in toward the center so you see it side-on.
     this.viewModel.position.set(0.26, -0.22, -0.5);
     this.viewModel.rotation.set(0.12, 0.5, 0);
@@ -119,7 +151,70 @@ export class Player {
     return PLAYER.staminaMax * (1 + 0.35 * this.world.upgrades.cardio);
   }
 
+  get isHidden() {
+    return this.alive && !!this.hidingSpot && !this.flashOn && !this.lightOn && !this.hidingRevealed;
+  }
+
+  enterHiding(spot, revealed = false) {
+    if (!this.alive || this.holding || this.hidingSpot || this.webbedBy || this.staggerTime > 0 || spot.occupant) return false;
+    this.hidingSpot = spot;
+    spot.occupant = this;
+    this.hidingRevealed = revealed;
+    this.pos.copy(spot.pos);
+    this.vel.set(0, 0, 0);
+    this.speed = 0;
+    this.bob = 0;
+    this.yaw = spot.yaw;
+    this.pitch = 0;
+    this.eyeHeight = spot.eyeHeight;
+    this.flashOn = this.lightOn = false;
+    this.flash.intensity = 0;
+    this.fill.visible = false;
+    this.sync();
+    this.snapCamera();
+    return true;
+  }
+
+  leaveHiding({ force = false, relocate = true } = {}) {
+    const spot = this.hidingSpot;
+    if (!spot) return true;
+    if (relocate) {
+      const f = new THREE.Vector3(Math.sin(spot.yaw), 0, Math.cos(spot.yaw));
+      const right = new THREE.Vector3(f.z, 0, -f.x);
+      let exit = null;
+      // Try the designated entrance, then nearby clear positions if a partner
+      // is standing in the doorway. Never eject a player through a wall.
+      for (const [side, forward] of [[0, 0], [-0.75, 0.3], [0.75, 0.3], [0, 0.9]]) {
+        const candidate = spot.entry.clone().addScaledVector(right, side).addScaledVector(f, forward);
+        const checked = candidate.clone();
+        this.world.level.collideCircle(checked, PLAYER.radius);
+        if (checked.distanceTo(candidate) > 0.02 || this.world.level.isWallAt(candidate.x, candidate.z)) continue;
+        if (!this.world.level.lineOfSight(spot.entry.x, spot.entry.z, candidate.x, candidate.z)) continue;
+        if (!force && this.world.players.some(p => p !== this && p.alive && !p.hidingSpot && p.pos.distanceTo(candidate) < PLAYER.radius * 2)) continue;
+        exit = candidate;
+        break;
+      }
+      if (!exit && !force) return false;
+      this.pos.copy(exit || spot.entry);
+    }
+    if (spot.occupant === this) spot.occupant = null;
+    this.hidingSpot = null;
+    this.hidingRevealed = false;
+    this.vel.set(0, 0, 0);
+    this.speed = 0;
+    this.eyeHeight = EYE_H;
+    this.body.scale.y = 1;
+    this.marker.visible = true;
+    this.sync();
+    this.snapCamera();
+    return true;
+  }
+
   spawn(x, z, yaw) {
+    this.webbedBy?.releaseVictim();
+    this.staggerTime = this.trapGrace = 0;
+    this.leaveHiding({ force: true, relocate: false });
+    this.mapOpen = false;
     this.pos.set(x, 0, z);
     this.vel.set(0, 0, 0);
     this.yaw = yaw;
@@ -130,17 +225,22 @@ export class Player {
     this.holding = null;
     this.group.visible = true;
     this.anim.play('idle', { fade: 0 });
+    this.rig.position.y = 0;
+    this.rig.rotation.set(0, 0, 0);
+    this.deathTime = 0;
     this.sync();
     this.snapCamera();
   }
 
   update(dt, intent) {
     const world = this.world;
+    this.staggerTime = Math.max(0, this.staggerTime - dt);
     if (!this.alive) {
       this.lightOn = false;
       this.flash.visible = false;
       this.fill.visible = false;
       this.anim.update(dt);
+      if (this.procedural) this.animateRig(dt);
       this.sync();
       return;
     }
@@ -149,6 +249,12 @@ export class Player {
     this.yaw -= intent.mouseTurn * PLAYER.mouseSens;
     this.pitch -= (intent.mouseLook || 0) * PLAYER.mouseSens + (intent.look || 0) * 1.8 * dt;
     this.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, this.pitch));
+    if (this.hidingSpot?.kind === 'locker') {
+      const base = this.hidingSpot.yaw;
+      const relative = Math.atan2(Math.sin(this.yaw - base), Math.cos(this.yaw - base));
+      this.yaw = base + Math.max(-0.65, Math.min(0.65, relative));
+      this.pitch = Math.max(-0.45, Math.min(0.45, this.pitch));
+    }
 
     const f = this.forwardVec(new THREE.Vector3());
     const right = new THREE.Vector3(-f.z, 0, f.x);
@@ -156,9 +262,10 @@ export class Player {
       .addScaledVector(f, intent.forward * (intent.forward < 0 ? PLAYER.backMul : 1))
       .addScaledVector(right, intent.strafe);
     if (move.lengthSq() > 1) move.normalize();
+    if (this.hidingSpot || this.webbedBy || this.staggerTime > 0) move.set(0, 0, 0);
     const moving = move.lengthSq() > 0.01;
 
-    const sprinting = intent.sprint && moving && intent.forward >= 0 && !this.exhausted && this.stamina > 0;
+    const sprinting = intent.sprint && moving && !this.mapOpen && !this.hidingSpot && intent.forward >= 0 && !this.exhausted && this.stamina > 0;
     if (sprinting) {
       this.stamina -= PLAYER.staminaDrain * dt;
       if (this.stamina <= 0) {
@@ -171,12 +278,16 @@ export class Player {
     }
 
     const base = sprinting ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
-    const mul = (1 + 0.06 * world.upgrades.cardio) * this.carryMul;
+    const mul = (1 + 0.06 * world.upgrades.cardio) * this.carryMul * (this.mapOpen ? 0.45 : 1);
     const desired = move.multiplyScalar(base * mul);
+    if (this.webbedBy || this.staggerTime > 0) this.vel.set(0, 0, 0);
     this.vel.lerp(desired, 1 - Math.exp(-12 * dt));
     const px = this.pos.x, pz = this.pos.z;
     this.pos.addScaledVector(this.vel, dt);
-    if (world.level.collideCircle(this.pos, PLAYER.radius) && dt > 0) {
+    if (this.hidingSpot) {
+      this.pos.copy(this.hidingSpot.pos);
+      this.vel.set(0, 0, 0);
+    } else if (world.level.collideCircle(this.pos, PLAYER.radius) && dt > 0) {
       // Pressing into a wall is not moving: keep only the velocity that happened.
       this.vel.x = (this.pos.x - px) / dt;
       this.vel.z = (this.pos.z - pz) / dt;
@@ -199,6 +310,7 @@ export class Player {
     if (intent.flashPressed) {
       this.flashOn = !this.flashOn;
       world.sound.flashClick();
+      if (this.hidingSpot) world.emitNoise(this.pos.x, this.pos.z, 2.5, 'flash');
     }
     if (world.level.inLift(this.pos.x, this.pos.z)) {
       this.battery = Math.min(this.batteryMax, this.battery + PLAYER.batteryRecharge * dt);
@@ -229,11 +341,14 @@ export class Player {
       }
     }
     this.flash.position.z = reach;
+    this.flash.position.y = this.eyeHeight - 0.15;
     this.flash.target.position.y = this.flash.position.y + Math.tan(this.pitch) * 8;
-    const vmY = this.flashOn ? -0.22 : -0.33;
+    const vmY = this.mapOpen ? -0.6 : this.flashOn ? -0.22 : -0.33;
     this.viewModel.position.y += (vmY - this.viewModel.position.y) * Math.min(1, dt * 10);
     this.lens.material.color.setHex(on ? 0xfff4d8 : 0x2a2820);
-    this.fill.visible = true;
+    this.fill.visible = !this.hidingSpot;
+    this.marker.visible = !this.hidingSpot;
+    this.body.scale.y = this.hidingSpot?.kind === 'table' ? 0.36 : 1;
 
     // Animation.
     const holding = !!this.holding;
@@ -241,7 +356,27 @@ export class Player {
     else if (this.speed > 0.3) this.anim.play('walk', { timeScale: Math.max(0.6, this.speed / 2.6) });
     else this.anim.play(holding && this.anim.has('holding-both') ? 'holding-both' : 'idle');
     this.anim.update(dt);
+    if (this.procedural) this.animateRig(dt);
     this.sync();
+  }
+
+  // Motion for a model without animation clips: walking bob and sway, a lean
+  // when sprinting, and falling backward on death.
+  animateRig(dt) {
+    const rig = this.rig;
+    if (!this.alive) {
+      this.deathTime += dt;
+      const k = 1 - Math.pow(1 - Math.min(1, this.deathTime / 0.7), 3);
+      rig.rotation.set(-Math.PI / 2 * k, 0, 0);
+      rig.position.y = 0.15 * k;
+      return;
+    }
+    const moving = Math.min(1, this.speed / 1.5);
+    if (this.speed > 0.3) this.walkPhase += dt * (4 + this.speed * 1.6);
+    rig.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.045 * moving;
+    rig.rotation.z = Math.sin(this.walkPhase) * 0.035 * moving;
+    const lean = this.speed > PLAYER.walkSpeed * 1.2 ? 0.14 : 0.04 * moving;
+    rig.rotation.x += (lean - rig.rotation.x) * Math.min(1, dt * 8);
   }
 
   sync() {
@@ -250,11 +385,15 @@ export class Player {
   }
 
   kill() {
+    this.webbedBy?.releaseVictim();
+    this.leaveHiding({ force: true });
+    this.mapOpen = false;
     this.alive = false;
     this.vel.set(0, 0, 0);
     this.speed = 0;
     this.lightOn = false;
     this.camShake = 1;
+    this.deathTime = 0;
     this.anim.play('die', { once: true, fade: 0.1 });
   }
 
@@ -275,7 +414,7 @@ export class Player {
     const amt = Math.min(1, this.speed / 3);
     const bobY = Math.sin(this.bob * 2) * 0.035 * amt;
     const bobX = Math.cos(this.bob) * 0.025 * amt;
-    outPos.set(this.pos.x + f.x * 0.12 - f.z * bobX, EYE_H + bobY, this.pos.z + f.z * 0.12 + f.x * bobX);
+    outPos.set(this.pos.x + f.x * 0.12 - f.z * bobX, this.eyeHeight + bobY, this.pos.z + f.z * 0.12 + f.x * bobX);
     const cp = Math.cos(this.pitch);
     outLook.set(outPos.x + f.x * cp, outPos.y + Math.sin(this.pitch), outPos.z + f.z * cp);
   }
@@ -308,7 +447,41 @@ export class Player {
   }
 
   dispose() {
+    this.webbedBy?.releaseVictim();
+    this.leaveHiding({ force: true, relocate: false });
     this.world.scene.remove(this.group);
     this.world.scene.remove(this.camera);
+    this.flash.map.dispose();
+    this.flash.dispose();
+    this.marker.material.map.dispose();
+    this.marker.material.dispose();
+    for (const m of this.materials) m.dispose();
+    const materials = new Set();
+    this.viewModel.traverse((o) => {
+      if (!o.isMesh) return;
+      o.geometry.dispose();
+      materials.add(o.material);
+    });
+    for (const m of materials) m.dispose();
   }
+}
+
+// Uneven reflector rings and a soft hotspot, projected into the real geometry.
+function flashlightTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const pixels = ctx.createImageData(256, 256);
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    const dx = (x - 127.5) / 128, dy = (y - 127.5) / 128;
+    const radius = Math.hypot(dx, dy);
+    const rings = Math.sin(radius * 65) * 0.025 + Math.sin(radius * 117) * 0.012;
+    const hotspot = 0.65 + 0.35 * Math.exp(-radius * radius * 9);
+    const edge = 1 - Math.min(1, Math.max(0, (radius - 0.68) / 0.32));
+    const v = Math.round(255 * Math.max(0, Math.min(1, (hotspot + rings) * edge)));
+    const i = (y * 256 + x) * 4;
+    pixels.data[i] = v; pixels.data[i + 1] = v; pixels.data[i + 2] = v; pixels.data[i + 3] = 255;
+  }
+  ctx.putImageData(pixels, 0, 0);
+  return new THREE.CanvasTexture(canvas);
 }

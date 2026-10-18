@@ -11,8 +11,7 @@ export class Zombie extends Monster {
   };
 
   constructor(world) {
-    super(world, ['human-deer', 'character-zombie'], { height: 1.85, radius: 0.42, eyeColor: 0x9cff3a });
-    if (this.custom) this.resize(2.2);
+    super(world, ['human-deer'], { height: 2.95, radius: 0.42 });
     this.state = 'wander';
     this.target = this.pos.clone();
     this.searchTime = 0;
@@ -21,7 +20,29 @@ export class Zombie extends Monster {
     this.wanderTarget = null;
   }
 
+  // The Listener is blind; only a noise can lead it to occupied cover.
+  canWitnessHiding() {
+    return false;
+  }
+
+  investigateHiding() {
+    if (this.state !== 'hunt' && this.state !== 'search') return;
+    for (const p of this.world.players) {
+      if (!p.alive || !p.isHidden || this.world.level.inLift(p.pos.x, p.pos.z)) continue;
+      const nearNoise = Math.hypot(p.pos.x - this.target.x, p.pos.z - this.target.z) <= 1.6;
+      const reach = Math.max(1.35, (p.hidingSpot?.halfWidth || 0.5) + this.radius + 0.08);
+      const inReach = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < reach;
+      if (nearNoise && inReach && this.world.level.lineOfSight(this.pos.x, this.pos.z, p.pos.x, p.pos.z)) {
+        p.hidingRevealed = true;
+        // Discovery gives it one exact location, not ongoing player tracking.
+        this.target.copy(p.pos);
+        this.state = 'hunt';
+      }
+    }
+  }
+
   update(dt) {
+    if (this.updateStatus(dt)) return;
     const world = this.world;
     this.cooldown -= dt;
 
@@ -72,6 +93,7 @@ export class Zombie extends Monster {
       this.groanTimer = 6 + Math.random() * 6;
     }
 
+    this.investigateHiding();
     this.tryCatch();
     this.anim.update(dt);
     this.sync();

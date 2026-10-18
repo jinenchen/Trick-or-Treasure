@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Trick or Treasure</title>
-  <meta name="description" content="Co-op Halloween horror looting game: haul cursed loot out of the catacombs before midnight.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎃</text></svg>">
+  <meta name="description" content="A grim industrial horror retrieval game. Descend into Hollowmere, haul cursed valuables to the lift, and survive the things below.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23111310'/%3E%3Cpath d='M25 20h50v12H38v36h24V55H50V43h25v37H25z' fill='%23b9b59b'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Creepster&family=Special+Elite&display=swap" rel="stylesheet">
@@ -34,25 +34,36 @@
 
   <section id="title" class="screen">
     <div class="title-inner">
+      <div class="facility-id"><span>GRIMCO / RECOVERY DIVISION</span><span>FACILITY 06 &nbsp; · &nbsp; 23:48</span></div>
       <h1>Trick <span>or</span> Treasure</h1>
-      <p class="tagline">a GRIMCO Acquisitions retrieval simulator</p>
+      <p class="tagline">Hollowmere subterranean retrieval program</p>
       <p class="pitch">Descend into the Hollowmere Catacombs. Haul cursed loot to the lift.
         Make quota before midnight. Don't break anything. Don't get caught.</p>
       <div id="loading">
-        <div>Summoning the dead...</div>
+        <div>Establishing contact with the lower levels...</div>
         <div class="load-bar"><div id="load-fill"></div></div>
       </div>
       <div id="title-buttons" class="hidden">
-        <button id="btn-1p" class="big">1 Intern</button>
-        <button id="btn-2p" class="big">2 Interns <small>same keyboard</small></button>
+        <button id="btn-1p" class="big">Enter alone <small>1 intern</small></button>
+        <button id="btn-2p" class="big">Bring a partner <small>2 interns · same keyboard</small></button>
       </div>
+      <p class="audio-note">HEADPHONES RECOMMENDED · LISTEN BEFORE YOU MOVE</p>
+      <details class="picture-settings"><summary>Picture settings</summary>
+        <label>Exposure <input data-brightness aria-label="Exposure" type="range" min="0.7" max="1.6" step="0.05" value="1"></label>
+        <label><input data-reduced type="checkbox"> Reduce grain, lens effects and camera shake</label>
+      </details>
       <div class="controls">
-        <div><h4 class="p1">Intern 1</h4><p>WASD move &middot; L-Shift sprint<br>E grab / drop &middot; F flashlight<br>Click the game to look with the mouse</p></div>
-        <div><h4 class="p2">Intern 2</h4><p>Arrows move &middot; R-Shift sprint<br>Enter grab / drop &middot; / flashlight</p></div>
-        <div><h4>Also</h4><p>Gamepads work<br>M mute &middot; Esc pause</p></div>
+        <div><h4 class="p1">Intern 1</h4><p>WASD move &middot; L-Shift sprint<br>E use / grab &middot; F flashlight<br>Q hide / leave &middot; Tab map<br>R stun &middot; G throw decoy<br>Click the game for mouse look</p></div>
+        <div><h4 class="p2">Intern 2</h4><p>Arrows move &middot; R-Shift sprint<br>Enter use / grab &middot; / flashlight<br>Backspace hide &middot; &#92; map<br>Numpad 4 stun &middot; 5 decoy</p></div>
+        <div><h4>Gamepad</h4><p>A use &middot; X flashlight<br>B hide &middot; Y map<br>LB stun &middot; D-pad down decoy<br>M mute &middot; Esc pause</p></div>
       </div>
-      <p class="credits">Models: Kenney Graveyard Kit (CC0); monsters by wffefefefesfrte4t4, ceeleste, dedwerd_ on Sketchfab (CC BY 4.0)
-        &middot; Sounds: Dragon Studio (Pixabay) &middot; three.js &middot; made at Hack the Six Octoberfest</p>
+      <details class="survival-guide"><summary>Equipment &amp; survival notes</summary>
+        <p>Open chests with use. Some are mimics. Aim your stun to buy time; throw a decoy away from your escape route. Watch the floor and use nearby traps to disarm them.</p>
+        <p>If a spider webs your partner, approach and use to cut them free. With nobody free to help, tap use to struggle. Keep your light off while hiding.</p>
+      </details>
+      <p class="credits">Props: Kenney (CC0) &middot; Original creature rigs inspired by the supplied Sketchfab references
+        &middot; Audio: <a href="https://pixabay.com/sound-effects/musical-creepy-industrial-sounds-ambience-482892/" target="_blank" rel="noopener">DRAGON-STUDIO / Pixabay</a>
+        &middot; three.js &middot; Hack the Six Octoberfest</p>
     </div>
   </section>
 
@@ -79,6 +90,16 @@
     <div class="memo small">
       <div class="memo-head"><span>PAUSED</span><span>ON THE CLOCK</span></div>
       <p>The dead are patient. GRIMCO is not.</p>
+      <div class="pause-controls">
+        <p><b>Intern 1</b> &nbsp; E use &middot; Q hide &middot; Tab map<br>R stun &middot; G throw decoy</p>
+        <p><b>Intern 2</b> &nbsp; Enter use &middot; Backspace hide &middot; &#92; map<br>Numpad 4 stun &middot; Numpad 5 decoy</p>
+        <p><b>Gamepad</b> &nbsp; A use &middot; B hide &middot; Y map<br>LB stun &middot; D-pad down decoy</p>
+        <small>Use opens chests, disarms traps and cuts a webbed partner free. If nobody can help, tap use to struggle. A chest may be a mimic.</small>
+      </div>
+      <div class="picture-settings">
+        <label>Exposure <input data-brightness aria-label="Exposure" type="range" min="0.7" max="1.6" step="0.05" value="1"></label>
+        <label><input data-reduced type="checkbox"> Reduce grain, lens effects and camera shake</label>
+      </div>
       <button id="btn-resume" class="big">Resume <small>[Esc]</small></button>
       <button id="btn-quit" class="ghost-btn">Quit to title</button>
     </div>

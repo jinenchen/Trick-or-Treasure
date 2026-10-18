@@ -11,8 +11,7 @@ export class Skeleton extends Monster {
   };
 
   constructor(world) {
-    super(world, ['bacteria', 'character-skeleton'], { height: 1.9, radius: 0.4, eyeColor: 0x8fe8ff });
-    if (this.custom) this.resize(2.6);   // the Bacteria is tall and spindly
+    super(world, ['bacteria', 'accurate-bacteria'], { height: 2.85, radius: 0.4 });
     this.dormant = 18;
     this.freeze = 0;
     this.rattleTimer = 0;
@@ -20,6 +19,7 @@ export class Skeleton extends Monster {
   }
 
   update(dt) {
+    if (this.updateStatus(dt)) return;
     const world = this.world;
     this.cooldown -= dt;
     const lit = this.isLit();

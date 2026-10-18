@@ -4,15 +4,17 @@ const BINDINGS = [
   { // Player 1
     forward: ['KeyW'], back: ['KeyS'], left: ['KeyA'], right: ['KeyD'],
     sprint: ['ShiftLeft'], grab: ['KeyE', 'Space'], flash: ['KeyF'],
+    hide: ['KeyQ'], map: ['Tab'], stun: ['KeyR'], lure: ['KeyG'],
   },
   { // Player 2
     forward: ['ArrowUp'], back: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
     sprint: ['ShiftRight'], grab: ['Enter', 'NumpadEnter', 'Numpad0'], flash: ['Slash', 'ControlRight', 'NumpadDecimal'],
+    hide: ['Backspace', 'Numpad1'], map: ['Backslash', 'Numpad2'], stun: ['Numpad4'], lure: ['Numpad5'],
   },
 ];
 
 const BLOCK_DEFAULT = new Set([
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Slash', 'Tab', 'Enter',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Slash', 'Tab', 'Enter', 'Backspace',
 ]);
 
 export class Input {
@@ -28,7 +30,9 @@ export class Input {
     this.canvas = canvas;
 
     addEventListener('keydown', (e) => {
-      if (BLOCK_DEFAULT.has(e.code)) e.preventDefault();
+      // Tab is the map during play; retain native focus/slider keys in menus.
+      const inMenu = !!document.querySelector('.screen:not(.hidden)');
+      if (BLOCK_DEFAULT.has(e.code) && (!inMenu || !e.target.closest?.('input, button, summary, select, textarea'))) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
     });
@@ -93,6 +97,10 @@ export class Input {
       sprint: this.any(b.sprint),
       grabPressed: this.anyPressed(b.grab),
       flashPressed: this.anyPressed(b.flash),
+      hidePressed: this.anyPressed(b.hide),
+      mapPressed: this.anyPressed(b.map),
+      stunPressed: this.anyPressed(b.stun),
+      lurePressed: this.anyPressed(b.lure),
     };
 
     // Player 1 with a locked mouse: mouse turns, A/D strafe, LMB grab, RMB light.
@@ -124,6 +132,10 @@ export class Input {
       if (btn(7) || btn(10) || btn(6)) it.sprint = true;
       if (edge(0)) it.grabPressed = true;
       if (edge(2) || edge(5)) it.flashPressed = true;
+      if (edge(1)) it.hidePressed = true;
+      if (edge(3)) it.mapPressed = true;
+      if (edge(4)) it.stunPressed = true;
+      if (edge(13)) it.lurePressed = true;
       for (let i = 0; i < pad.buttons.length; i++) prev[i] = btn(i);
     }
     return it;

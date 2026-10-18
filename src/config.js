@@ -51,11 +51,11 @@ export function quotaForFloor(floor) {
 
 // Which specimens haunt each floor. New ones get a facility notice.
 export function monstersForFloor(floor) {
-  if (floor === 1) return ['skeleton'];
-  if (floor === 2) return ['zombie', 'skeleton'];
-  if (floor === 3) return ['ghost', 'zombie'];
-  if (floor === 4) return ['ghost', 'skeleton', 'zombie'];
-  const list = ['ghost', 'skeleton', 'zombie'];
+  if (floor === 1) return ['skeleton', 'spider', 'thief'];
+  if (floor === 2) return ['zombie', 'skeleton', 'spider', 'lizard', 'thief'];
+  if (floor === 3) return ['ghost', 'zombie', 'spider', 'lizard', 'thief'];
+  if (floor === 4) return ['ghost', 'skeleton', 'zombie', 'spider', 'lizard', 'thief'];
+  const list = ['ghost', 'skeleton', 'zombie', 'spider', 'lizard', 'thief'];
   for (let i = 5; i <= floor; i++) list.push(['skeleton', 'zombie', 'ghost'][i % 3]);
   return list;
 }

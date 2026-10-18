@@ -3,6 +3,9 @@
 import { NIGHT } from './config.js';
 import { Skeleton } from './entities/skeleton.js';
 import { Zombie } from './entities/zombie.js';
+import { HIDING_TESTS } from './hiding-tests.js';
+import { JUMPSCARE_TESTS } from './jumpscare-tests.js';
+import { ENCOUNTER_TESTS } from './encounter-tests.js';
 
 const DT = 1 / 60;
 const NO_INPUT = { forward: 0, strafe: 0, turn: 0, mouseTurn: 0, sprint: false, grabPressed: false, flashPressed: false };
@@ -59,6 +62,9 @@ function calmMonsters(game) {
 }
 
 const TESTS = {
+  ...JUMPSCARE_TESTS,
+  ...ENCOUNTER_TESTS,
+  ...HIDING_TESTS,
   smoke(game) {
     game.startRun(2, { skipNotice: true });
     const spawned = game.items.length;

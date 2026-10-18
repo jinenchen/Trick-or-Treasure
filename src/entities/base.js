@@ -3,14 +3,17 @@
 import * as THREE from 'three';
 import { LIFT_HALF } from '../config.js';
 import { instance, Animator, pickModel, isCustomModel } from '../assets.js';
+import { createCreatureRig, disposeCreatureRig } from './creature-rigs.js';
 
 export class Monster {
-  // `models`: preferred model first, Kenney fallback last (see CUSTOM_MODELS).
-  constructor(world, models, { height = 1.85, radius = 0.4, passWalls = false, eyeColor = 0xff2a1a } = {}) {
+  // Supplied GLBs take precedence; original articulated rigs are always available.
+  constructor(world, models, { height = 2.7, radius = 0.4, passWalls = false, rigFactory = createCreatureRig } = {}) {
     const model = Array.isArray(models) ? pickModel(...models) : models;
-    this.modelName = model;
     this.custom = isCustomModel(model);
+    const design = Array.isArray(models) ? models[0] : models;
+    this.modelName = this.custom ? model : design;
     this.height = height;
+    this.rigFactory = rigFactory;
     this.world = world;
     this.pos = new THREE.Vector3();
     this.yaw = 0;
@@ -19,31 +22,25 @@ export class Monster {
     this.cooldown = 0;
     this.moving = false;
     this.waypoint = new THREE.Vector3();
+    this.stunnedFor = 0;
+    this.distractedFor = 0;
+    this.distractionTarget = new THREE.Vector3();
 
     this.group = new THREE.Group();
-    const { object, inner, animations } = instance(model, { height });
+    const { object, inner, animations, animator } = this.custom
+      ? instance(model, { height })
+      : rigFactory(design, { height });
     this.model = object;
     this.group.add(object);
-    this.anim = new Animator(inner, animations);
+    this.anim = animator || new Animator(inner, animations);
     this.anim.play('idle');
-
-    // Glowing eyes read well in the dark even when the body doesn't
-    // (only on the Kenney models; downloaded ones have their own faces).
-    if (!this.custom) {
-      const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
-      const eyeGeo = new THREE.SphereGeometry(0.035, 8, 6);
-      for (const s of [-1, 1]) {
-        const eye = new THREE.Mesh(eyeGeo, eyeMat);
-        eye.position.set(s * 0.09, height * 0.86, 0.2);
-        this.group.add(eye);
-      }
-    }
     world.scene.add(this.group);
   }
 
   // Rescale to a new height in meters (custom models get their own sizes).
   resize(height) {
-    this.model.scale.setScalar(height / this.height);
+    this.model.scale.multiplyScalar(height / this.height);
+    this.height = height;
   }
 
   place(p) {
@@ -55,14 +52,65 @@ export class Monster {
     return this.world.players.filter((p) => p.alive);
   }
 
+  get isStunned() { return this.stunnedFor > 0; }
+
+  stun(seconds = 4) {
+    this.stunnedFor = Math.max(this.stunnedFor, seconds);
+    this.distractedFor = 0;
+    this.moving = false;
+  }
+
+  distract(pos, seconds = 6) {
+    this.distractionTarget.copy(pos);
+    this.distractedFor = Math.max(this.distractedFor, seconds);
+  }
+
+  // Every specimen shares the same counterplay, including the wall walker.
+  updateStatus(dt) {
+    if (this.stunnedFor > 0) {
+      this.stunnedFor = Math.max(0, this.stunnedFor - dt);
+      this.cooldown = Math.max(this.cooldown, 0.15);
+      this.moving = false;
+      this.anim.play('idle');
+      this.anim.mixer.timeScale = 1;
+      this.anim.update(dt * 0.2);
+      this.sync();
+      return true;
+    }
+    if (this.distractedFor > 0) {
+      this.distractedFor = Math.max(0, this.distractedFor - dt);
+      // Rattles still obeys its flashlight-freeze rule while distracted.
+      if (this.constructor.id !== 'skeleton' || !this.isLit()) {
+        this.moveToward(this.distractionTarget.x, this.distractionTarget.z, 1.65, dt);
+        this.anim.play(this.moving ? 'walk' : 'idle');
+        this.anim.mixer.timeScale = 1;
+        this.anim.update(dt);
+      }
+      this.sync();
+      return true;
+    }
+    return false;
+  }
+
   nearestPlayer(filter = () => true) {
     let best = null, bestD = Infinity;
     for (const p of this.world.players) {
-      if (!p.alive || !filter(p)) continue;
+      if (!p.alive || p.isHidden || !filter(p)) continue;
       const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
       if (d < bestD) { best = p; bestD = d; }
     }
     return { player: best, dist: bestD };
+  }
+
+  // Getting into cover does not fool a specimen that watched you do it.
+  // Check this before moving the player into the furniture's hiding position.
+  canWitnessHiding(player) {
+    if (!player.alive || this.world.level.inLift(player.pos.x, player.pos.z)) return false;
+    const dx = player.pos.x - this.pos.x, dz = player.pos.z - this.pos.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > 7 || !this.world.level.lineOfSight(this.pos.x, this.pos.z, player.pos.x, player.pos.z)) return false;
+    if (distance < 1.8) return true;
+    return (Math.sin(this.yaw) * dx + Math.cos(this.yaw) * dz) / distance >= Math.cos(Math.PI * 75 / 180);
   }
 
   // Step toward (tx,tz). Uses a straight line when it can see the goal,
@@ -100,12 +148,15 @@ export class Monster {
     }
   }
 
-  // Anyone within reach (and not standing in the lift) gets caught.
+  // Concealed interns stay safe until light or an investigation exposes them.
   tryCatch() {
-    if (this.cooldown > 0) return false;
+    if (this.cooldown > 0 || this.stunnedFor > 0 || this.distractedFor > 0) return false;
     for (const p of this.world.players) {
-      if (!p.alive || this.world.level.inLift(p.pos.x, p.pos.z)) continue;
-      if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < this.radius + 0.5) {
+      if (!p.alive || p.isHidden || p.trapGrace > 0 || this.world.level.inLift(p.pos.x, p.pos.z)) continue;
+      // Reach into an exposed hideout without needing to enter its solid shell.
+      const reach = p.hidingSpot ? Math.max(1.35, (p.hidingSpot.halfWidth || 0.5) + this.radius + 0.08) : this.radius + 0.5;
+      const clear = this.passWalls && !p.hidingSpot || this.world.level.lineOfSight(this.pos.x, this.pos.z, p.pos.x, p.pos.z);
+      if (clear && Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < reach) {
         this.cooldown = 3.5;
         this.anim.play(this.anim.has('attack-melee-right') ? 'attack-melee-right' : 'idle', { once: true });
         this.world.killPlayer(p, this);
@@ -127,5 +178,6 @@ export class Monster {
 
   dispose() {
     this.world.scene.remove(this.group);
+    if (!this.custom) disposeCreatureRig(this.model);
   }
 }
