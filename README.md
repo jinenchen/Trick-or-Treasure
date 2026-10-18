@@ -1,6 +1,6 @@
 ﻿# Trick or Treasure
 
-*A GRIMCO Acquisitions retrieval simulator.* Hack the Six Octoberfest, Best Halloween Hack entry.
+*A GRIMCO Acquisitions retrieval simulator.* 
 
 Co-op first-person horror looting in the browser, inspired by **R.E.P.O.** and **Threshold**, with a grimy, desaturated presentation inspired by **Buckshot Roulette**. Underpaid interns descend into Hollowmere's abandoned industrial catacombs, recover cursed valuables and make quota before midnight. Fragile loot loses value when it strikes a wall; heavy coffins need two interns.
 
