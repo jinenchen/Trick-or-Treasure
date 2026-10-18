@@ -233,6 +233,19 @@ button.big:hover, button.big:focus-visible { transform: translateY(-2px) scale(1
   letter-spacing: 1px;
 }
 #viewports.one .vp-tag { display: none; }
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 4px #000;
+  transition: transform 0.12s, background 0.12s;
+}
+.crosshair.active { transform: scale(1.8); background: var(--orange-soft); }
 .compass {
   position: absolute;
   top: 60px;

@@ -20,6 +20,7 @@ export class Input {
     this.down = new Set();
     this.pressed = new Set();      // edge-triggered, cleared each frame
     this.mouseDX = 0;
+    this.mouseDY = 0;
     this.mouseButtons = new Set();
     this.mousePressed = new Set();
     this.pointerLocked = false;
@@ -34,7 +35,10 @@ export class Input {
     addEventListener('keyup', (e) => this.down.delete(e.code));
     addEventListener('blur', () => this.down.clear());
     addEventListener('mousemove', (e) => {
-      if (this.pointerLocked) this.mouseDX += e.movementX;
+      if (this.pointerLocked) {
+        this.mouseDX += e.movementX;
+        this.mouseDY += e.movementY;
+      }
     });
     canvas.addEventListener('mousedown', (e) => {
       this.mouseButtons.add(e.button);
@@ -84,6 +88,8 @@ export class Input {
       strafe: 0,
       turn: (this.any(b.right) ? 1 : 0) - (this.any(b.left) ? 1 : 0),  // +1 = turn right
       mouseTurn: 0,
+      mouseLook: 0,                 // mouse Y, + = look down
+      look: 0,                      // gamepad right stick Y, + = look down
       sprint: this.any(b.sprint),
       grabPressed: this.anyPressed(b.grab),
       flashPressed: this.anyPressed(b.flash),
@@ -94,6 +100,7 @@ export class Input {
       it.strafe = it.turn;
       it.turn = 0;
       it.mouseTurn = this.mouseDX;
+      it.mouseLook = this.mouseDY;
       if (this.mousePressed.has(0)) it.grabPressed = true;
       if (this.mousePressed.has(2)) it.flashPressed = true;
     }
@@ -109,9 +116,11 @@ export class Input {
       const fwd = -dz(pad.axes[1] || 0);
       const str = dz(pad.axes[0] || 0);
       const trn = dz(pad.axes[2] || 0);
+      const lk = dz(pad.axes[3] || 0);
       if (fwd) it.forward = fwd;
       if (str) it.strafe = str;
       if (trn) it.turn = trn;
+      if (lk) it.look = lk;
       if (btn(7) || btn(10) || btn(6)) it.sprint = true;
       if (edge(0)) it.grabPressed = true;
       if (edge(2) || edge(5)) it.flashPressed = true;
@@ -124,5 +133,6 @@ export class Input {
     this.pressed.clear();
     this.mousePressed.clear();
     this.mouseDX = 0;
+    this.mouseDY = 0;
   }
 }

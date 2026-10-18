@@ -2,7 +2,7 @@
 
 *A GRIMCO Acquisitions retrieval simulator.* Hack the Six Octoberfest, Best Halloween Hack entry.
 
-Co-op 3D horror looting in the browser, inspired by **R.E.P.O.** (haul fragile loot to make quota) and **Threshold** (descend into a creepy facility, survive entities with learnable rules).
+Co-op first-person horror looting in the browser, inspired by **R.E.P.O.** (haul fragile loot to make quota) and **Threshold** (descend into a creepy facility, survive entities with learnable rules).
 
 You and a friend are underpaid interns sent into the **Hollowmere Catacombs** on Halloween night. Find cursed valuables in the dark, carry them to the **lift**, and hit the quota before **midnight**. Loot cracks when it hits walls, and every crack costs money. Heavy coffins take two interns. Each floor down is worse.
 
@@ -23,8 +23,8 @@ python -m http.server 8080      # or: npx serve .
 | Grab / drop | E (or Space) | Enter |
 | Flashlight | F | `/` |
 
-- Solo: click the game for mouse look (A/D strafe, left click grab, right click light).
-- Gamepads work (one per intern). `M` mutes, `Esc` pauses.
+- Click the game for mouse look (Intern 1): A/D strafe, left click grab, right click light.
+- Gamepads work (one per intern, right stick looks around). `M` mutes, `Esc` pauses.
 
 ## The specimens
 | | Rule |
@@ -67,5 +67,10 @@ GitHub Pages: repo **Settings → Pages → Deploy from branch → `main` / root
 
 ## Credits
 - 3D models: [Kenney Graveyard Kit](https://kenney.nl/assets/graveyard-kit) (CC0)
+- Monster models (optional, CC BY 4.0, see `assets/models/sketchfab/README.md`):
+  "Lifeform (Bacteria)" by wffefefefesfrte4t4, "The Human Deer" by ceeleste,
+  "GMOD - Bacteria Pill (Backrooms)" by dedwerd_, all on Sketchfab
+- Sounds: "Creepy Industrial Sounds Ambience" and "Scary Sound Effect" by Dragon Studio
+  ([Pixabay](https://pixabay.com/sound-effects/), Pixabay Content License)
 - Rendering: [three.js](https://threejs.org) r169 (MIT)
 - Fonts: Creepster, Special Elite (Google Fonts, OFL)

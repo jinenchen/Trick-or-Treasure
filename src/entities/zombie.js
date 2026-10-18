@@ -11,7 +11,8 @@ export class Zombie extends Monster {
   };
 
   constructor(world) {
-    super(world, 'character-zombie', { height: 1.85, radius: 0.42, eyeColor: 0x9cff3a });
+    super(world, ['human-deer', 'character-zombie'], { height: 1.85, radius: 0.42, eyeColor: 0x9cff3a });
+    if (this.custom) this.resize(2.2);
     this.state = 'wander';
     this.target = this.pos.clone();
     this.searchTime = 0;

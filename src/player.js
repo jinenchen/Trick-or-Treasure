@@ -1,6 +1,9 @@
-// A retrieval intern: movement, flashlight, stamina, third-person camera.
+// A retrieval intern: movement, flashlight, stamina, first-person camera.
 import * as THREE from 'three';
 import { PLAYER, FLASH, NOISE, WALL_H } from './config.js';
+
+const EYE_H = 1.42;
+const PITCH_MIN = -1.2, PITCH_MAX = 1.0;
 import { instance, uniqueMaterials, Animator } from './assets.js';
 import { labelTexture } from './textures.js';
 
@@ -17,6 +20,8 @@ export class Player {
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
     this.yaw = 0;
+    this.pitch = -0.08;
+    this.bob = 0;
     this.speed = 0;
     this.alive = true;
     this.stamina = PLAYER.staminaMax;
@@ -36,8 +41,10 @@ export class Player {
     if (index === 1) {
       for (const m of this.materials) m.color.multiply(new THREE.Color(0.7, 0.85, 1.4));
     }
-    this.opacity = 1;
-    this.camDist = 3;
+    // Your own body is hidden in your own view (see Game.render) and casts no
+    // shadow, so it never blocks your flashlight.
+    object.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+    this.body = object;
     this.group.add(object);
     this.anim = new Animator(inner, animations);
     this.anim.play('idle');
@@ -51,8 +58,9 @@ export class Player {
     this.group.add(this.marker);
 
     this.flash = new THREE.SpotLight(FLASH.color, FLASH.intensity, FLASH.range, FLASH.angle, 0.45, 1.25);
-    this.flash.position.set(0.15, 1.3, 0.3);
-    this.flash.target.position.set(0.15, 0.55, 7);
+    // Beam starts just past the torch in your hand, so the torch isn't lit by its own beam.
+    this.flash.position.set(-0.15, EYE_H - 0.15, 0.75);
+    this.flash.target.position.set(-0.15, EYE_H - 0.15, 8);
     this.flash.castShadow = true;
     this.flash.shadow.mapSize.set(512, 512);
     this.flash.shadow.camera.near = 0.2;
@@ -60,17 +68,37 @@ export class Player {
     this.flash.shadow.bias = -0.002;
     this.group.add(this.flash, this.flash.target);
 
-    // Dim fill light so you can always see your own intern.
-    this.fill = new THREE.PointLight(index ? 0x7f9cff : 0xffa060, 1.2, 4.5, 2);
-    this.fill.position.set(0, 2.4, -0.8);
+    // Faint glow around each intern so your partner is visible in the dark.
+    this.fill = new THREE.PointLight(index ? 0x7f9cff : 0xffa060, 0.7, 3.5, 2);
+    this.fill.position.set(0, 2.2, -0.4);
     this.group.add(this.fill);
 
-    this.camera = new THREE.PerspectiveCamera(68, 1, 0.08, 90);
+    this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 90);
     this.camera.layers.enable(0);
     for (let j = 0; j < 2; j++) if (j !== index) this.camera.layers.enable(10 + j);
     this.camPos = new THREE.Vector3();
     this.camLook = new THREE.Vector3();
     this.camShake = 0;
+
+    // Flashlight in your hand, on a layer only your own camera renders.
+    const metal = new THREE.MeshStandardMaterial({ color: 0x4a4852, metalness: 0.5, roughness: 0.45 });
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.02, 0.28, 14), metal);
+    grip.rotation.x = Math.PI / 2;
+    const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.025, 0.06, 16), metal);
+    bezel.rotation.x = Math.PI / 2;
+    bezel.position.z = -0.17;
+    // Glowing rim at the front: tells you the light is on.
+    this.lens = new THREE.Mesh(new THREE.TorusGeometry(0.034, 0.007, 6, 20), new THREE.MeshBasicMaterial({ color: 0xfff4d8 }));
+    this.lens.position.z = -0.2;
+    this.viewModel = new THREE.Group();
+    this.viewModel.add(grip, bezel, this.lens);
+    // Lower right, angled in toward the center so you see it side-on.
+    this.viewModel.position.set(0.26, -0.22, -0.5);
+    this.viewModel.rotation.set(0.12, 0.5, 0);
+    this.viewModel.traverse((o) => o.layers.set(20 + index));
+    this.camera.layers.enable(20 + index);
+    this.camera.add(this.viewModel);
+    world.scene.add(this.camera);
 
     world.scene.add(this.group);
   }
@@ -95,6 +123,7 @@ export class Player {
     this.pos.set(x, 0, z);
     this.vel.set(0, 0, 0);
     this.yaw = yaw;
+    this.pitch = -0.08;
     this.alive = true;
     this.stamina = this.staminaMax;
     this.battery = Math.max(this.battery, this.batteryMax * 0.6);
@@ -118,6 +147,8 @@ export class Player {
 
     this.yaw -= intent.turn * PLAYER.turnSpeed * dt;
     this.yaw -= intent.mouseTurn * PLAYER.mouseSens;
+    this.pitch -= (intent.mouseLook || 0) * PLAYER.mouseSens + (intent.look || 0) * 1.8 * dt;
+    this.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, this.pitch));
 
     const f = this.forwardVec(new THREE.Vector3());
     const right = new THREE.Vector3(-f.z, 0, f.x);
@@ -151,6 +182,7 @@ export class Player {
       this.vel.z = (this.pos.z - pz) / dt;
     }
     this.speed = Math.hypot(this.vel.x, this.vel.z);
+    this.bob = this.speed > 0.3 ? this.bob + dt * this.speed * 2.6 : this.bob * (1 - Math.min(1, dt * 6));
 
     // Footsteps make noise; sprinting makes a lot.
     if (this.speed > 0.4) {
@@ -188,6 +220,19 @@ export class Player {
     this.lightOn = on;
     this.flash.visible = true;
     this.flash.intensity = on ? intensity : 0;
+    // Keep the beam's origin out of walls you are standing right up against.
+    let reach = 0.75;
+    for (let t = 0.1; t <= 0.75; t += 0.05) {
+      if (world.level.isWallAt(this.pos.x + f.x * t, this.pos.z + f.z * t)) {
+        reach = Math.max(0.05, t - 0.12);
+        break;
+      }
+    }
+    this.flash.position.z = reach;
+    this.flash.target.position.y = this.flash.position.y + Math.tan(this.pitch) * 8;
+    const vmY = this.flashOn ? -0.22 : -0.33;
+    this.viewModel.position.y += (vmY - this.viewModel.position.y) * Math.min(1, dt * 10);
+    this.lens.material.color.setHex(on ? 0xfff4d8 : 0x2a2820);
     this.fill.visible = true;
 
     // Animation.
@@ -225,24 +270,14 @@ export class Player {
       outPos.set(focus.x, WALL_H - 0.35, cz);
       return;
     }
+    // Eyes, slightly forward of the body's center, with a little walking bob.
     const f = this.forwardVec(new THREE.Vector3());
-    const head = new THREE.Vector3(this.pos.x, 1.45, this.pos.z);
-    const want = 3.7;
-    let dist = want;
-    for (let t = 0.3; t <= want; t += 0.1) {
-      const x = head.x - f.x * t, z = head.z - f.z * t;
-      if (level.isWallAt(x + 0.22, z + 0.22) || level.isWallAt(x - 0.22, z - 0.22) ||
-          level.isWallAt(x + 0.22, z - 0.22) || level.isWallAt(x - 0.22, z + 0.22)) {
-        dist = Math.max(0.35, t - 0.15);
-        break;
-      }
-    }
-    // Pushed in close by a wall: rise up and look over the intern's head.
-    const close = 1 - dist / want;
-    const height = Math.min(WALL_H - 0.25, 2.3 + 0.8 * close);
-    outPos.set(head.x - f.x * dist, height, head.z - f.z * dist);
-    outLook.set(head.x + f.x * 3.5, 1.0 - 0.3 * close, head.z + f.z * 3.5);
-    this.camDist = dist;
+    const amt = Math.min(1, this.speed / 3);
+    const bobY = Math.sin(this.bob * 2) * 0.035 * amt;
+    const bobX = Math.cos(this.bob) * 0.025 * amt;
+    outPos.set(this.pos.x + f.x * 0.12 - f.z * bobX, EYE_H + bobY, this.pos.z + f.z * 0.12 + f.x * bobX);
+    const cp = Math.cos(this.pitch);
+    outLook.set(outPos.x + f.x * cp, outPos.y + Math.sin(this.pitch), outPos.z + f.z * cp);
   }
 
   snapCamera() {
@@ -252,10 +287,17 @@ export class Player {
   updateCamera(dt) {
     const pos = new THREE.Vector3(), look = new THREE.Vector3();
     this.desiredCamera(pos, look);
-    const k = 1 - Math.exp(-(this.alive ? 16 : 3) * dt);
-    this.camPos.lerp(pos, k);
-    this.camLook.lerp(look, k);
+    if (this.alive) {
+      // First person must be instant; only the death camera drifts.
+      this.camPos.copy(pos);
+      this.camLook.copy(look);
+    } else {
+      const k = 1 - Math.exp(-3 * dt);
+      this.camPos.lerp(pos, k);
+      this.camLook.lerp(look, k);
+    }
     this.camera.position.copy(this.camPos);
+    this.viewModel.visible = this.alive;
     if (this.camShake > 0) {
       this.camShake = Math.max(0, this.camShake - dt * 1.5);
       const s = this.camShake * 0.12;
@@ -265,26 +307,8 @@ export class Player {
     this.camera.lookAt(this.camLook);
   }
 
-  // Fade the model when your own camera is jammed up behind it.
-  setOpacity(a) {
-    if (Math.abs(a - this.opacity) < 0.01) return;
-    const wasOpaque = this.opacity >= 1;
-    this.opacity = a;
-    for (const m of this.materials) {
-      m.opacity = a;
-      if (wasOpaque !== a >= 1) {
-        m.transparent = a < 1;
-        m.depthWrite = a >= 1;
-        m.needsUpdate = true;
-      }
-    }
-  }
-
-  ownViewOpacity() {
-    return this.alive ? Math.min(1, Math.max(0.2, (this.camDist - 0.8) / 1.2)) : 1;
-  }
-
   dispose() {
     this.world.scene.remove(this.group);
+    this.world.scene.remove(this.camera);
   }
 }

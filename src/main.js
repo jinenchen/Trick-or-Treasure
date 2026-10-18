@@ -40,7 +40,7 @@ class Game {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x020203);
     this.scene.fog = new THREE.FogExp2(0x030305, 0.06);
-    this.scene.add(new THREE.AmbientLight(0x7078a0, 0.22));
+    this.scene.add(new THREE.AmbientLight(0x7078a0, 0.3));
 
     this.input = new Input(this.canvas);
     this.sound = new Sound();
@@ -76,10 +76,12 @@ class Game {
     const bar = $('#load-fill');
     await loadAssets((p) => { bar.style.width = `${Math.round(p * 100)}%`; });
     // Graffiti and signs are painted with web fonts, so wait for them briefly.
-    await Promise.race([
-      Promise.all([document.fonts.load('48px "Creepster"'), document.fonts.load('40px "Special Elite"')]),
-      new Promise((r) => setTimeout(r, 2500)),
-    ]).catch(() => {});
+    if (!params.has('test')) {
+      await Promise.race([
+        Promise.all([document.fonts.load('48px "Creepster"'), document.fonts.load('40px "Special Elite"')]),
+        new Promise((r) => setTimeout(r, 2500)),
+      ]).catch(() => {});
+    }
     $('#loading').classList.add('hidden');
     $('#title-buttons').classList.remove('hidden');
     this.buildTitleScene();
@@ -211,6 +213,7 @@ class Game {
     this.quotaAnnounced = false;
     this.departTimer = 3;
     this.firstCrack = true;
+    this.encounterScared = false;
 
     if (!this.players.length) {
       for (let i = 0; i < this.numPlayers; i++) this.players.push(new Player(i, this));
@@ -536,7 +539,7 @@ class Game {
       it.damage(25, 'dropped');
     }
     p.kill();
-    this.sound.sting();
+    this.sound.scare();
     this.run.deaths++;
     const others = this.players.filter((o) => o.alive);
     if (this.run.insurance > 0) {
@@ -635,7 +638,7 @@ class Game {
         const alt = this.input.intent(1);
         it = {
           forward: it.forward || alt.forward, strafe: it.strafe || alt.strafe, turn: it.turn || alt.turn,
-          mouseTurn: it.mouseTurn, sprint: it.sprint || alt.sprint,
+          mouseTurn: it.mouseTurn, mouseLook: it.mouseLook, look: it.look || alt.look, sprint: it.sprint || alt.sprint,
           grabPressed: it.grabPressed || alt.grabPressed, flashPressed: it.flashPressed || alt.flashPressed,
         };
       }
@@ -679,6 +682,11 @@ class Game {
     // Heartbeat + whispers.
     const danger = Math.max(0, ...this.players.map((p) => this.dangerFor(p)));
     this.sound.setDanger(danger);
+    // First close encounter on each floor gets the jump-scare sting.
+    if (!this.encounterScared && danger > 0.65) {
+      this.encounterScared = true;
+      this.sound.scare(0.7);
+    }
     this.sound.setWhisper(this.ghostNear);
 
     // Lift departure.
@@ -731,7 +739,8 @@ class Game {
       r.setScissor(i * vw, 0, vw, h);
       p.camera.aspect = vw / h;
       p.camera.updateProjectionMatrix();
-      for (const q of this.players) q.setOpacity(q === p ? q.ownViewOpacity() : 1);
+      // First person: hide your own body (but show your corpse once you're dead).
+      for (const q of this.players) q.body.visible = q !== p || !q.alive;
       r.render(this.scene, p.camera);
     });
   }

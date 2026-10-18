@@ -36,6 +36,7 @@ export class Hud {
       const keys = KEYS[i];
       el.innerHTML = `
         <div class="vp-tag">${p.name}</div>
+        <div class="crosshair"></div>
         <div class="compass"><div class="compass-arrow">&#9650;</div><div class="compass-label">LIFT</div></div>
         <div class="bars">
           <div class="bar battery"><span>LIGHT</span><b><i></i></b></div>
@@ -60,6 +61,7 @@ export class Hud {
         prompt: el.querySelector('.prompt'),
         compass: el.querySelector('.compass-arrow'),
         compassLabel: el.querySelector('.compass-label'),
+        crosshair: el.querySelector('.crosshair'),
         dead: el.querySelector('.dead'),
         deadText: el.querySelector('.dead p'),
         popups: el.querySelector('.popups'),
@@ -125,6 +127,8 @@ export class Hud {
       ui.compassLabel.textContent = level.inLift(p.pos.x, p.pos.z) ? 'IN LIFT' : `LIFT ${dist}m`;
 
       ui.dead.classList.toggle('hidden', p.alive);
+      ui.crosshair.classList.toggle('hidden', !p.alive);
+      ui.crosshair.classList.toggle('active', !!prompt && !it);
       if (!p.alive) ui.deadText.textContent = world.deathMessage(p);
       const danger = world.dangerFor(p);
       ui.vignette.style.opacity = String(Math.min(0.85, danger * 0.9));

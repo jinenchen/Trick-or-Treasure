@@ -13,16 +13,21 @@ export class Ghost extends Monster {
   };
 
   constructor(world) {
-    super(world, 'character-ghost', { height: 1.8, radius: 0.45, passWalls: true, eyeColor: 0xd8ffff });
-    for (const m of uniqueMaterials(this.model)) {
-      m.transparent = true;
-      m.opacity = 0.55;
-      m.depthWrite = false;
-      m.emissive = new THREE.Color(0x4fb8c8);
-      m.emissiveIntensity = 0.5;
-    }
+    super(world, ['bacteria-pill', 'character-ghost'], { height: 1.8, radius: 0.45, passWalls: true, eyeColor: 0xd8ffff });
     this.mats = [];
-    this.model.traverse((o) => o.isMesh && this.mats.push(o.material));
+    if (this.custom) {
+      this.resize(2.0);
+    } else {
+      // Kenney ghost: translucent and glowing.
+      for (const m of uniqueMaterials(this.model)) {
+        m.transparent = true;
+        m.opacity = 0.55;
+        m.depthWrite = false;
+        m.emissive = new THREE.Color(0x4fb8c8);
+        m.emissiveIntensity = 0.5;
+      }
+      this.model.traverse((o) => o.isMesh && this.mats.push(o.material));
+    }
     this.wanderTarget = null;
   }
 

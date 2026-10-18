@@ -102,7 +102,9 @@ export class Item {
     }
     const h = hs[0];
     const f = h.forwardVec(new THREE.Vector3());
-    return out.set(h.pos.x + f.x * 0.95, 1.0 - this.height * 0.3, h.pos.z + f.z * 0.95);
+    // Held out in front, low, so it sits at the bottom of the first-person view
+    // and mostly outside the flashlight's hot spot.
+    return out.set(h.pos.x + f.x * 1.15, 0.72 - this.height * 0.3, h.pos.z + f.z * 1.15);
   }
 
   update(dt) {

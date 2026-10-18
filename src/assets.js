@@ -1,7 +1,18 @@
-// Loads the Kenney Graveyard Kit models (CC0) and hands out scaled clones.
+// Loads the Kenney Graveyard Kit models (CC0) plus optional Sketchfab monsters
+// (CC-BY), and hands out scaled clones.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+
+// Optional monster models. Drop the GLB in place and the specimen uses it;
+// if the file is missing the Kenney model is used instead.
+//   yaw: turn the model so it faces +Z (forward), in radians.
+//   shadows: false for very heavy meshes (shadow passes redraw them).
+export const CUSTOM_MODELS = {
+  bacteria: { file: 'assets/models/sketchfab/bacteria.glb', yaw: 0, shadows: false },
+  'human-deer': { file: 'assets/models/sketchfab/human-deer.glb', yaw: 0, shadows: true },
+  'bacteria-pill': { file: 'assets/models/sketchfab/bacteria-pill.glb', yaw: 0, shadows: true },
+};
 
 export const MODEL_NAMES = [
   'character-keeper', 'character-skeleton', 'character-zombie', 'character-ghost',
@@ -15,33 +26,58 @@ export const MODEL_NAMES = [
 const cache = new Map();   // name -> { scene, animations, size, center, minY }
 let kitScale = 1;
 
+function store(name, gltf, { yaw = 0, shadows = true, custom = false } = {}) {
+  gltf.scene.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = shadows;
+      o.receiveShadow = true;
+      o.frustumCulled = !o.isSkinnedMesh;   // skinned bounds don't follow the animation
+    }
+  });
+  const box = new THREE.Box3().setFromObject(gltf.scene);
+  cache.set(name, {
+    scene: gltf.scene,
+    animations: gltf.animations,
+    size: box.getSize(new THREE.Vector3()),
+    center: box.getCenter(new THREE.Vector3()),
+    minY: box.min.y,
+    yaw,
+    custom,
+  });
+}
+
 export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader();
+  const jobs = [
+    ...MODEL_NAMES.map((name) => ({ name, file: `assets/models/${name}.glb`, opts: {} })),
+    ...Object.entries(CUSTOM_MODELS).map(([name, c]) => ({ name, file: c.file, opts: { ...c, custom: true }, optional: true })),
+  ];
   let done = 0;
-  await Promise.all(MODEL_NAMES.map((name) =>
-    loader.loadAsync(`assets/models/${name}.glb`)
-      .then((gltf) => {
-        gltf.scene.traverse((o) => {
-          if (o.isMesh) {
-            o.castShadow = true;
-            o.receiveShadow = true;
-          }
-        });
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        cache.set(name, {
-          scene: gltf.scene,
-          animations: gltf.animations,
-          size: box.getSize(new THREE.Vector3()),
-          center: box.getCenter(new THREE.Vector3()),
-          minY: box.min.y,
-        });
+  await Promise.all(jobs.map((job) =>
+    loader.loadAsync(job.file)
+      .then((gltf) => store(job.name, gltf, job.opts))
+      .catch((err) => {
+        if (job.optional) console.info(`Optional model ${job.name} not found, using the default.`);
+        else console.warn(`Model ${job.name} failed to load, using a placeholder.`, err);
       })
-      .catch((err) => console.warn(`Model ${name} failed to load, using a placeholder.`, err))
-      .finally(() => onProgress(++done / MODEL_NAMES.length)),
+      .finally(() => onProgress(++done / jobs.length)),
   ));
   const keeper = cache.get('character-keeper');
   // Kenney characters are chunky (big heads), so 1.55m reads as human-sized.
   kitScale = keeper ? 1.55 / keeper.size.y : 1;
+}
+
+export function hasModel(name) {
+  return cache.has(name);
+}
+
+export function isCustomModel(name) {
+  return !!cache.get(name)?.custom;
+}
+
+// First model in the list that actually loaded (falls back to the last one).
+export function pickModel(...names) {
+  return names.find(hasModel) || names[names.length - 1];
 }
 
 export function modelSize(name) {
@@ -74,7 +110,15 @@ export function instance(name, { height, maxDim, mul = 1 } = {}) {
   if (maxDim) scale = maxDim / Math.max(entry.size.x, entry.size.y, entry.size.z);
   inner.scale.setScalar(scale);
   inner.position.set(-entry.center.x * scale, -entry.minY * scale, -entry.center.z * scale);
-  object.add(inner);
+  if (entry.yaw) {
+    // Turn models that weren't authored facing +Z.
+    const pivot = new THREE.Group();
+    pivot.rotation.y = entry.yaw;
+    pivot.add(inner);
+    object.add(pivot);
+  } else {
+    object.add(inner);
+  }
   return { object, inner, animations: entry.animations };
 }
 
@@ -100,6 +144,9 @@ export class Animator {
     for (const clip of clips) this.actions.set(clip.name, this.mixer.clipAction(clip));
     this.current = null;
     this.currentName = '';
+    // Downloaded models often have one unnamed clip: use it for idle/walk/sprint.
+    const standard = ['idle', 'walk', 'sprint'].some((n) => this.actions.has(n));
+    this.fallback = !standard && clips.length ? clips[0].name : null;
   }
 
   has(name) {
@@ -107,6 +154,10 @@ export class Animator {
   }
 
   play(name, { fade = 0.2, once = false, timeScale = 1 } = {}) {
+    if (!this.actions.has(name) && this.fallback && !once) {
+      if (name === 'idle') timeScale = 0.15;   // a slow sway reads as idling
+      name = this.fallback;
+    }
     const next = this.actions.get(name);
     if (!next) return;
     next.timeScale = timeScale;

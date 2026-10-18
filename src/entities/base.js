@@ -2,10 +2,15 @@
 // staying out of the lift (consecrated ground).
 import * as THREE from 'three';
 import { LIFT_HALF } from '../config.js';
-import { instance, Animator } from '../assets.js';
+import { instance, Animator, pickModel, isCustomModel } from '../assets.js';
 
 export class Monster {
-  constructor(world, model, { height = 1.85, radius = 0.4, passWalls = false, eyeColor = 0xff2a1a } = {}) {
+  // `models`: preferred model first, Kenney fallback last (see CUSTOM_MODELS).
+  constructor(world, models, { height = 1.85, radius = 0.4, passWalls = false, eyeColor = 0xff2a1a } = {}) {
+    const model = Array.isArray(models) ? pickModel(...models) : models;
+    this.modelName = model;
+    this.custom = isCustomModel(model);
+    this.height = height;
     this.world = world;
     this.pos = new THREE.Vector3();
     this.yaw = 0;
@@ -22,16 +27,23 @@ export class Monster {
     this.anim = new Animator(inner, animations);
     this.anim.play('idle');
 
-    // Glowing eyes read well in the dark even when the body doesn't.
-    const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
-    this.eyeMat = eyeMat;
-    const eyeGeo = new THREE.SphereGeometry(0.035, 8, 6);
-    for (const s of [-1, 1]) {
-      const eye = new THREE.Mesh(eyeGeo, eyeMat);
-      eye.position.set(s * 0.09, height * 0.86, 0.2);
-      this.group.add(eye);
+    // Glowing eyes read well in the dark even when the body doesn't
+    // (only on the Kenney models; downloaded ones have their own faces).
+    if (!this.custom) {
+      const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
+      const eyeGeo = new THREE.SphereGeometry(0.035, 8, 6);
+      for (const s of [-1, 1]) {
+        const eye = new THREE.Mesh(eyeGeo, eyeMat);
+        eye.position.set(s * 0.09, height * 0.86, 0.2);
+        this.group.add(eye);
+      }
     }
     world.scene.add(this.group);
+  }
+
+  // Rescale to a new height in meters (custom models get their own sizes).
+  resize(height) {
+    this.model.scale.setScalar(height / this.height);
   }
 
   place(p) {

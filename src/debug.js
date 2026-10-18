@@ -276,6 +276,20 @@ const TESTS = {
     return TESTS.scene(game, 2);
   },
 
+  carryShot(game) {
+    game.startRun(1, { skipNotice: true });
+    calmMonsters(game);
+    const p = game.players[0];
+    const item = game.items.find((i) => i.type.id === 'pumpkin' || i.type.id === 'jack') || game.items.find((i) => !i.heavy);
+    standAt(game, p, item, 1.0);
+    game.toggleGrab(p);
+    p.pitch = -0.15;
+    steps(game, 40);
+    game.radioCooldown = 99;
+    document.querySelector('#debug-log').classList.add('hidden');
+    return { ok: p.holding === item, info: item.type.id };
+  },
+
   noticeShot(game) {
     game.startRun(2);
     document.querySelector('#debug-log').classList.add('hidden');

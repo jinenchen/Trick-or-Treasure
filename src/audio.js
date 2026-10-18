@@ -1,4 +1,5 @@
-// Procedural WebAudio: ambience, footsteps, monster cues, UI. No audio files.
+// WebAudio: streamed ambience track + scare sting (Pixabay, assets/audio), and
+// procedural footsteps, monster cues and UI sounds.
 
 export class Sound {
   constructor() {
@@ -42,6 +43,43 @@ export class Sound {
 
     this.startAmbience();
     this.startWhisper();
+    this.loadFiles();
+  }
+
+  loadFiles() {
+    // The ambience track is long, so stream it instead of decoding it all.
+    const el = new Audio('assets/audio/ambience.mp3');
+    el.loop = true;
+    const src = this.ctx.createMediaElementSource(el);
+    this.ambienceGain = this.ctx.createGain();
+    this.ambienceGain.gain.value = 0.55;
+    src.connect(this.ambienceGain).connect(this.master);
+    el.play().then(() => {
+      // The recorded ambience takes over from the synth drone.
+      this.droneGain.gain.setTargetAtTime(0.015, this.ctx.currentTime, 2);
+    }).catch(() => {});
+    this.ambienceEl = el;
+
+    fetch('assets/audio/scare.mp3')
+      .then((r) => r.arrayBuffer())
+      .then((buf) => this.ctx.decodeAudioData(buf))
+      .then((decoded) => { this.scareBuffer = decoded; })
+      .catch(() => {});
+  }
+
+  // Jump-scare sting (falls back to the synth sting until the file loads).
+  scare(vol = 1) {
+    if (!this.ctx) return;
+    if (!this.scareBuffer) {
+      this.sting();
+      return;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.scareBuffer;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.9 * vol;
+    src.connect(g).connect(this.master);
+    src.start();
   }
 
   toggleMute() {
@@ -98,6 +136,7 @@ export class Sound {
     const ctx = this.ctx;
     const g = ctx.createGain();
     g.gain.value = 0.06;
+    this.droneGain = g;
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
     f.frequency.value = 180;
