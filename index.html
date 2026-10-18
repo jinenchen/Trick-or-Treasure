@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trick or Treasure</title>
+  <meta name="description" content="Co-op Halloween horror looting game: haul cursed loot out of the catacombs before midnight.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎃</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Creepster&family=Special+Elite&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="hud-floor">FLOOR B1</div>
+      <div id="quota">
+        <div id="quota-label">QUOTA</div>
+        <div id="quota-bar"><div id="quota-fill"></div></div>
+        <div id="quota-text">$0 / $0</div>
+      </div>
+      <div id="hud-clock">10:00 PM</div>
+    </div>
+    <div id="viewports"></div>
+    <div id="lift-banner" class="hidden"></div>
+    <div id="radio" class="hidden"><span class="radio-tag">GRIMCO HQ</span><span id="radio-text"></span></div>
+  </div>
+
+  <section id="title" class="screen">
+    <div class="title-inner">
+      <h1>Trick <span>or</span> Treasure</h1>
+      <p class="tagline">a GRIMCO Acquisitions retrieval simulator</p>
+      <p class="pitch">Descend into the Hollowmere Catacombs. Haul cursed loot to the lift.
+        Make quota before midnight. Don't break anything. Don't get caught.</p>
+      <div id="loading">
+        <div>Summoning the dead...</div>
+        <div class="load-bar"><div id="load-fill"></div></div>
+      </div>
+      <div id="title-buttons" class="hidden">
+        <button id="btn-1p" class="big">1 Intern</button>
+        <button id="btn-2p" class="big">2 Interns <small>same keyboard</small></button>
+      </div>
+      <div class="controls">
+        <div><h4 class="p1">Intern 1</h4><p>WASD move &middot; L-Shift sprint<br>E grab / drop &middot; F flashlight<br>Click for mouse look</p></div>
+        <div><h4 class="p2">Intern 2</h4><p>Arrows move &middot; R-Shift sprint<br>Enter grab / drop &middot; / flashlight</p></div>
+        <div><h4>Also</h4><p>Gamepads work<br>M mute &middot; Esc pause</p></div>
+      </div>
+      <p class="credits">3D models: Kenney Graveyard Kit (CC0) &middot; three.js &middot; made at Hack the Six Octoberfest</p>
+    </div>
+  </section>
+
+  <section id="notice" class="screen hidden">
+    <div class="memo">
+      <div class="memo-head"><span>GRIMCO ACQUISITIONS &middot; FACILITY NOTICE</span><span id="notice-floor"></span></div>
+      <div id="notice-body"></div>
+      <button id="btn-notice" class="big">Clock in <small>[Enter]</small></button>
+    </div>
+  </section>
+
+  <section id="shop" class="screen hidden">
+    <div class="memo">
+      <div class="memo-head"><span id="shop-title">LEVEL CLEARED</span><span>COMPANY STORE</span></div>
+      <div id="shop-summary" class="stats"></div>
+      <p id="shop-boss" class="boss-quote"></p>
+      <div class="wallet">Wallet <b id="shop-wallet">$0</b></div>
+      <div id="shop-items"></div>
+      <button id="btn-descend" class="big">Descend</button>
+    </div>
+  </section>
+
+  <section id="pause" class="screen hidden">
+    <div class="memo small">
+      <div class="memo-head"><span>PAUSED</span><span>ON THE CLOCK</span></div>
+      <p>The dead are patient. GRIMCO is not.</p>
+      <button id="btn-resume" class="big">Resume <small>[Esc]</small></button>
+      <button id="btn-quit" class="ghost-btn">Quit to title</button>
+    </div>
+  </section>
+
+  <section id="gameover" class="screen hidden">
+    <div class="memo">
+      <h1 class="fired">You're Fired</h1>
+      <p id="gameover-reason"></p>
+      <div id="gameover-stats" class="stats"></div>
+      <p id="gameover-boss" class="boss-quote"></p>
+      <button id="btn-retry" class="big">Re-apply for the job <small>[Enter]</small></button>
+      <button id="btn-title" class="ghost-btn">Title screen</button>
+    </div>
+  </section>
+
+  <div id="fade"></div>
+  <div id="mute-indicator" class="hidden">MUTED (M)</div>
+  <pre id="debug-log" class="hidden"></pre>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
