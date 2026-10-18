@@ -9,13 +9,18 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 //   yaw: turn the model so it faces +Z (forward), in radians.
 //   shadows: false for very heavy meshes (shadow passes redraw them).
 export const CUSTOM_MODELS = {
+  'wall-spider': { file: 'assets/models/sketchfab/spider.glb', yaw: 0, shadows: true },
   'blind-seeker': { file: 'assets/models/sketchfab/blind-seeker.glb', yaw: 0, shadows: true },
   bacteria: { file: 'assets/models/sketchfab/bacteria.glb', yaw: 0, shadows: false },
   'accurate-bacteria': { file: 'assets/models/sketchfab/accurate-bacteria.glb', yaw: 0, shadows: false },
   'human-deer': { file: 'assets/models/sketchfab/human-deer.glb', yaw: 0, shadows: true },
   'bacteria-pill': { file: 'assets/models/sketchfab/bacteria-pill.glb', yaw: 0, shadows: true },
   // Player model; falls back to the Kenney intern when absent.
-  'business-man': { file: 'assets/models/sketchfab/business-man.glb', yaw: 0, shadows: false },
+  'business-man': {
+    file: 'assets/models/sketchfab/business-man.glb',
+    alternates: ['assets/models/sketchfab/business-man/scene.gltf'],
+    yaw: 0, shadows: true,
+  },
 };
 
 export const MODEL_NAMES = [
@@ -54,14 +59,22 @@ export async function loadAssets(onProgress = () => {}) {
   const loader = new GLTFLoader();
   const jobs = [
     ...MODEL_NAMES.map((name) => ({ name, file: `assets/models/${name}.glb`, opts: {} })),
-    ...Object.entries(CUSTOM_MODELS).map(([name, c]) => ({ name, file: c.file, opts: { ...c, custom: true }, optional: true })),
+    ...Object.entries(CUSTOM_MODELS).map(([name, c]) => ({ name, file: c.file, alternates: c.alternates, opts: { ...c, custom: true }, optional: true })),
   ];
   let done = 0;
+  const load = async (job) => {
+    let lastError;
+    for (const file of [job.file, ...(job.alternates || [])]) {
+      try { return await loader.loadAsync(file); }
+      catch (error) { lastError = error; }
+    }
+    throw lastError;
+  };
   await Promise.all(jobs.map((job) =>
-    loader.loadAsync(job.file)
+    load(job)
       .then((gltf) => store(job.name, gltf, job.opts))
       .catch((err) => {
-        if (job.optional) console.info(`Optional model ${job.name} unavailable; the procedural specimen remains available.`);
+        if (job.optional) console.info(`Optional model ${job.name} unavailable; using its built-in fallback.`);
         else console.warn(`Model ${job.name} failed to load, using a placeholder.`, err);
       })
       .finally(() => onProgress(++done / jobs.length)),

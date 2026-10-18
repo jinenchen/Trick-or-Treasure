@@ -32,7 +32,7 @@ export class Input {
     addEventListener('keydown', (e) => {
       // Tab is the map during play; retain native focus/slider keys in menus.
       const inMenu = !!document.querySelector('.screen:not(.hidden)');
-      if (BLOCK_DEFAULT.has(e.code) && (!inMenu || !e.target.closest?.('input, button, summary, select, textarea'))) e.preventDefault();
+      if (BLOCK_DEFAULT.has(e.code) && !inMenu) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
     });

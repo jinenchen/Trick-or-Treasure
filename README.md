@@ -47,7 +47,7 @@ The elevator arrow follows the available corridors back to the safe lift. Pull o
 | **01, Rattles** | Towering, tangled Lifeform | Moves only in the dark. Keep it in the flashlight. |
 | **02, The Listener** | Blind humanoid deer with branching antlers | Hunts noise: sprinting, dropped loot and cracking urns. |
 | **03, The Watcher** | Drifting fibrous body with hanging tendrils | Passes through walls toward flashlights. Lights off when it whispers. |
-| **04, The Weaver** | Ceiling spider with articulated legs and fangs | Walking underneath can web you. A partner must cut you free within nine seconds; a stun also releases you. When no free partner is alive, press the use key three times, with a short pause between presses, to struggle out. |
+| **04, The Weaver** | Supplied textured spider with eight articulated legs | Walking underneath can web you. A partner must cut you free within nine seconds; a stun also releases you. When no free partner is alive, press the use key three times, with a short pause between presses, to struggle out. |
 | **05, The Blind Seeker** | Eyeless, crawling creature with long fingers and a split maw | Wanders peacefully until crowded, lit for too long or disturbed by loud noise. Break contact for eight seconds to calm it. |
 | **06, The Collector** | Scuttling thief bug | Steals small carried valuables, then flees. Get close and use E, or stun it, to recover the item intact. It cannot kill, and never steals soul jars, heavy loot or items inside the lift. |
 | **07, The False Chest** | A reward chest unfolding into teeth and legs | Opening it triggers a brief transformation before it can attack. Back away, stun it or distract it. |
@@ -58,9 +58,13 @@ Getting caught triggers a 3D attack by that specific specimen: a short intake of
 
 The lift is safe ground. A dead intern drops a **soul jar**; their partner can bring it to the lift to revive them.
 
+Both interns use the supplied [Business man by PropShop](https://sketchfab.com/3d-models/business-man-3cff4eb8fe204564aea0c1d1ebef92b6), bundled as a textured 1.75m character. The supplied FBX had no skeleton or animation clips, so it now has an original 24-bone rig and smooth skin weights. Teammates see walking/running, backward and sideways movement, torch aiming, carried loot, map reading, crouching and death/revival poses. Equipment follows the hands; each player has an independent skeleton and materials. See the [model setup notes](assets/models/sketchfab/README.md) for conversion details and attribution.
+
+The Weaver uses the actual model from the supplied `spider.zip`. Its static Blender mesh now has an articulated rig and animations for ceiling movement, web capture, feeding, release, stun and its close-up attack. The world spider and each player's jumpscare use separate skeletons, so a scare cannot change the creature visible to a teammate.
+
 ## Sound
 
-The supplied Pixabay industrial ambience and scare recordings play locally, layered with synthesized room tone, pipe movement, drips, creature breath, joint cracks and heartbeat. Visible water impacts and failing fixtures have positional drip and ballast sounds. Nearby threats change the mix, and the ambience crossfades at its loop boundary. Each jumpscare synchronizes a 1.35-second excerpt from `scare.mp3`'s strongest impact section with the creature's lunge and its species-specific synthesized attack sounds. Audio starts after user interaction, retries a pending attack after asynchronous audio unlock, follows mute/pause/background suspension, and cancels when the attack clears. See [recording credits](assets/audio/README.md).
+The supplied Pixabay industrial ambience and proximity scare recordings play locally, layered with synthesized room tone, pipe movement, drips, creature breath, joint cracks and heartbeat. Visible water impacts and failing fixtures have positional drip and ballast sounds. Nearby threats change the mix, and the ambience crossfades at its loop boundary. Every jumpscare now plays the user-supplied Fesliyan Studios **Jump Scare D** recording on the creature's lunge, at its original pitch and speed. Audio starts after user interaction, retries a pending attack after asynchronous audio unlock, follows mute/pause/background suspension, and cancels when the attack clears. See [recording credits](assets/audio/README.md).
 
 ## Project layout
 
@@ -72,6 +76,8 @@ No build step: plain ES modules and vendored three.js, with local models, record
 | `src/film.js` | Per-player low-resolution render targets, grading, grain and lens effects |
 | `src/jumpscare.js` | Matching creature attack shots, per-player cameras and cancellable sound cues |
 | `src/player.js`, `src/input.js` | Movement, flashlights, cameras and controls |
+| `src/player-avatar.js` | Teammate-view humanoid poses, authored animation support and held equipment |
+| `src/entities/spider-avatar.js` | Imported spider animation transitions, attack sampling and independent skeleton lifecycle |
 | `src/loot.js`, `src/hud.js` | Loot handling, fragility and interface |
 | `src/encounters.js`, `src/gadgets.js` | Reward/mimic chests, disarmable traps, stun charges and thrown decoys |
 | `src/level.js`, `src/textures.js` | Facility generation, pathfinding, industrial details and distressed materials |
@@ -93,6 +99,8 @@ To add a specimen, follow `src/entities/skeleton.js`, provide its notice, regist
 - `?auto=1` / `?auto=2` skips the menu into a one- or two-player game. Add `&floor=3` for a deeper start and `&seed=7` for a fixed layout.
 - `?test=all` runs gameplay checks; `?test=carry,heavy` selects tests. Coverage includes carrying, wall damage, heavy co-op, flashlight freeze, hearing, revival, midnight, descent, hiding/detection, independent maps, elevator navigation and per-creature jumpscares with co-op/pause/reset checks.
 - Encounter checks cover chest rewards, mimic activation, trap disarming, gadgets, spider rescue, seeker provocation, recoverable theft and safe placement. Select them with `?test=encounterChestRewards,encounterMimic,encounterTraps,encounterGadgets,encounterSpider,encounterLizard,encounterThief,encounterPlacement`.
+- Player checks cover independent skeletons/materials, teammate visibility, equipment, death/revival, table clearance without squashing, gait and resource cleanup. Select them with `?test=playerAvatarIndependence,playerAvatarViews,playerAvatarRecovery,playerAvatarCover,playerAvatarAttachments,playerAvatarDisposal,playerAvatarHumanoidAdapter`.
+- Imported spider checks cover eight-leg skin deformation, ceiling contact, capture and attack isolation, stun recovery and shared-asset cleanup. Select them with `?test=spiderAvatarArticulation,spiderAvatarCeiling,spiderAvatarAttackIsolation,spiderAvatarLifecycle`.
 - `?test=scene` stages a specimen encounter for visual inspection.
 
 ## Optional live AI boss
@@ -105,8 +113,10 @@ GitHub Pages: repository **Settings > Pages > Deploy from branch > `main` / root
 
 ## Credits
 
-- Prop and intern models: [Kenney Graveyard Kit](https://kenney.nl/assets/graveyard-kit), CC0.
+- Player: [Business man](https://sketchfab.com/3d-models/business-man-3cff4eb8fe204564aea0c1d1ebef92b6) by [PropShop / syedabbas0815](https://sketchfab.com/syedabbas0815), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Converted from the supplied FBX, corrected material emission, and added an original skeleton, skin weights and gameplay poses.
+- Props and fallback intern: [Kenney Graveyard Kit](https://kenney.nl/assets/graveyard-kit), CC0.
 - Creature and recruitment-form references: [Sketchfab reference list](assets/models/sketchfab/README.md). The included creature geometry and recruitment-form artwork are original procedural work.
 - Recordings: DRAGON-STUDIO's [Creepy Industrial Sounds Ambience](https://pixabay.com/sound-effects/musical-creepy-industrial-sounds-ambience-482892/) and [Scary Sound Effect](https://pixabay.com/sound-effects/horror-scary-sound-effect-359877/), Pixabay Content License; [local credits](assets/audio/README.md).
+- Jumpscare: user-supplied **Jump Scare D**, Fesliyan Studios; [local credits](assets/audio/README.md).
 - Rendering: [three.js](https://threejs.org), r169, MIT.
 - Optional web fonts: Creepster and Special Elite, Google Fonts, OFL; local font fallbacks remain available.

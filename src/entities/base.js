@@ -7,13 +7,14 @@ import { createCreatureRig, disposeCreatureRig } from './creature-rigs.js';
 
 export class Monster {
   // Supplied GLBs take precedence; original articulated rigs are always available.
-  constructor(world, models, { height = 2.7, radius = 0.4, passWalls = false, rigFactory = createCreatureRig } = {}) {
+  constructor(world, models, { height = 2.7, radius = 0.4, passWalls = false, rigFactory = createCreatureRig, modelAdapter = null } = {}) {
     const model = Array.isArray(models) ? pickModel(...models) : models;
     this.custom = isCustomModel(model);
     const design = Array.isArray(models) ? models[0] : models;
     this.modelName = this.custom ? model : design;
     this.height = height;
     this.rigFactory = rigFactory;
+    this.modelAdapter = modelAdapter;
     this.world = world;
     this.pos = new THREE.Vector3();
     this.yaw = 0;
@@ -27,14 +28,21 @@ export class Monster {
     this.distractionTarget = new THREE.Vector3();
 
     this.group = new THREE.Group();
-    const { object, inner, animations, animator } = this.custom
-      ? instance(model, { height })
-      : rigFactory(design, { height });
+    const { object, inner, animations, animator, dispose } = this.createVisual();
     this.model = object;
+    this.inner = inner;
+    this.disposeVisual = dispose;
     this.group.add(object);
     this.anim = animator || new Animator(inner, animations);
     this.anim.play('idle');
     world.scene.add(this.group);
+  }
+
+  // Gameplay and each jumpscare get the same model adapter, with private bones.
+  createVisual() {
+    const source = this.custom ? instance(this.modelName, { height: this.height })
+      : this.rigFactory(this.modelName, { height: this.height });
+    return this.custom && this.modelAdapter ? this.modelAdapter(source, { height: this.height }) : source;
   }
 
   // Rescale to a new height in meters (custom models get their own sizes).
@@ -71,9 +79,10 @@ export class Monster {
       this.stunnedFor = Math.max(0, this.stunnedFor - dt);
       this.cooldown = Math.max(this.cooldown, 0.15);
       this.moving = false;
-      this.anim.play('idle');
+      const hasStun = this.anim.has('stunned');
+      this.anim.play(hasStun ? 'stunned' : 'idle');
       this.anim.mixer.timeScale = 1;
-      this.anim.update(dt * 0.2);
+      this.anim.update(hasStun ? dt : dt * 0.2);
       this.sync();
       return true;
     }
@@ -82,7 +91,9 @@ export class Monster {
       // Rattles still obeys its flashlight-freeze rule while distracted.
       if (this.constructor.id !== 'skeleton' || !this.isLit()) {
         this.moveToward(this.distractionTarget.x, this.distractionTarget.z, 1.65, dt);
-        this.anim.play(this.moving ? 'walk' : 'idle');
+        const walkSpeed = this.anim.walkMetersPerSecond;
+        const timeScale = this.moving && Number.isFinite(walkSpeed) && walkSpeed > 0 ? 1.65 / walkSpeed : 1;
+        this.anim.play(this.moving ? 'walk' : 'idle', { timeScale });
         this.anim.mixer.timeScale = 1;
         this.anim.update(dt);
       }
@@ -178,6 +189,14 @@ export class Monster {
 
   dispose() {
     this.world.scene.remove(this.group);
-    if (!this.custom) disposeCreatureRig(this.model);
+    if (this.disposeVisual) this.disposeVisual();
+    else if (!this.custom) disposeCreatureRig(this.model);
+    else {
+      this.anim.mixer.stopAllAction();
+      this.anim.mixer.uncacheRoot(this.inner);
+      const skeletons = new Set();
+      this.model.traverse(node => { if (node.isSkinnedMesh) skeletons.add(node.skeleton); });
+      for (const skeleton of skeletons) skeleton.dispose();
+    }
   }
 }

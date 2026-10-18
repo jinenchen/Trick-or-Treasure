@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { WALL_H } from '../config.js';
 import { Monster } from './base.js';
 import { createFacilityRig } from './facility-rigs.js';
+import { adaptSpiderRig } from './spider-avatar.js';
 
 const LOUD_NOISES = new Set(['sprint', 'crack', 'shatter', 'drop', 'shot', 'gunshot', 'stun', 'explosion']);
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -83,9 +84,9 @@ export class Spider extends Monster {
   };
 
   constructor(world) {
-    super(world, 'wall-spider', { height: 0.68, radius: 0.42, rigFactory: createFacilityRig });
+    super(world, 'wall-spider', { height: 0.68, radius: 0.42, rigFactory: createFacilityRig, modelAdapter: adaptSpiderRig });
     this.state = 'perched';
-    this.perchY = WALL_H - 0.08;
+    this.perchY = WALL_H - (this.custom ? 0.01 : 0.08);
     this.model.rotation.z = Math.PI;
     this.victim = null;
     this.webTime = 0;
@@ -108,6 +109,7 @@ export class Spider extends Monster {
         !visible(this.world, this.pos, player.pos)) return false;
     this.victim = player;
     this.state = 'feeding';
+    this.anim.setState?.('capture');
     this.webTime = 0;
     this.struggleCount = 0;
     this.lastStruggle = -Infinity;
@@ -165,6 +167,7 @@ export class Spider extends Monster {
     this.victim = null;
     this.state = 'perched';
     this.web.visible = false;
+    this.anim.setState?.('release');
     this.cooldown = Math.max(this.cooldown, 5);
     if (reason && victim.alive) popup(this.world, victim, reason);
     return victim;
@@ -172,6 +175,7 @@ export class Spider extends Monster {
 
   stun(seconds) {
     this.releaseVictim('The spider lost its grip. You are free.');
+    this.anim.setState?.('stunned');
     return super.stun(seconds);
   }
 
@@ -206,7 +210,8 @@ export class Spider extends Monster {
     } else {
       this.tryCatch();
     }
-    this.anim.play(this.victim ? 'walk' : 'idle', { timeScale: this.victim ? 0.55 : 0.35 });
+    if (this.anim.setState) this.anim.setState(this.victim ? 'feeding' : 'perched');
+    else this.anim.play(this.victim ? 'walk' : 'idle', { timeScale: this.victim ? 0.55 : 0.35 });
     this.anim.update(dt);
     this.sync();
   }

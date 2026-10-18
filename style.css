@@ -159,6 +159,29 @@ button.big:hover, button.big:focus-visible { background: #4a503c; border-color: 
 .specimen .tip { font-size: 13px; opacity: 0.75; }
 .memo .big { margin-top: 10px; }
 
+/* Keep the rules and the clock-in action reachable on smaller windows. */
+#notice .memo {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: clamp(14px, 3vh, 22px) clamp(14px, 3vw, 26px);
+  transform: none;
+}
+#notice .memo-head, #btn-notice { flex-shrink: 0; }
+#btn-notice { align-self: center; }
+#notice-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: #756d56 #aba58f;
+  padding-right: 10px;
+  overflow-wrap: anywhere;
+}
+#notice-body:focus-visible { outline: 2px solid #756d56; outline-offset: -2px; }
+#notice .specimen h3 { font-size: clamp(28px, 5vw, 40px); }
+
 .stats { display: grid; gap: 4px; max-width: 380px; margin: 0 auto 10px; font-size: 16px; }
 .stats div { display: flex; justify-content: space-between; border-bottom: 1px dotted #9a8a6a; padding: 3px 0; }
 .boss-quote { font-style: italic; min-height: 1.4em; margin: 12px 0; font-size: 15px; }

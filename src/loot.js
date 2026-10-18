@@ -105,7 +105,8 @@ export class Item {
     const f = h.forwardVec(new THREE.Vector3());
     // Held out in front, low, so it sits at the bottom of the first-person view
     // and mostly outside the flashlight's hot spot.
-    return out.set(h.pos.x + f.x * 1.15, 0.72 - this.height * 0.3, h.pos.z + f.z * 1.15);
+    const reach = h.avatar?.carryDistance ?? 1.15;
+    return out.set(h.pos.x + f.x * reach, 0.72 - this.height * 0.3, h.pos.z + f.z * reach);
   }
 
   update(dt) {

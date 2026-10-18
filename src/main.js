@@ -1,6 +1,6 @@
 // TRICK OR TREASURE: game bootstrap, world state, floor flow, rendering.
 import * as THREE from 'three';
-import { loadAssets } from './assets.js';
+import { loadAssets, hasModel } from './assets.js';
 import { Input } from './input.js';
 import { Sound } from './audio.js';
 import { Hud } from './hud.js';
@@ -92,6 +92,7 @@ class Game {
   async init() {
     const bar = $('#load-fill');
     await loadAssets((p) => { bar.style.width = `${Math.round(p * 100)}%`; });
+    $('#player-model-credit').classList.toggle('hidden', !hasModel('business-man'));
     // Graffiti and signs are painted with web fonts, so wait for them briefly.
     if (!params.has('test')) {
       await Promise.race([
@@ -148,7 +149,8 @@ class Game {
         // The same Esc may also have released the mouse lock and paused us already.
         else if (this.state === 'paused' && performance.now() - this.pausedAt > 300) this.setPaused(false);
       }
-      const confirm = e.code === 'Enter' || e.code === 'Space' || e.code === 'NumpadEnter';
+      const scrollingRules = this.state === 'notice' && e.target.closest?.('#notice-body');
+      const confirm = e.code === 'Enter' || e.code === 'NumpadEnter' || (e.code === 'Space' && !scrollingRules);
       if (confirm && this.state === 'notice') this.closeNotice();
       else if (confirm && this.state === 'shop') this.leaveShop();
       else if (confirm && this.state === 'gameover' && this.gameoverReady) this.startRun(this.numPlayers);
@@ -266,7 +268,7 @@ class Game {
     this.items = spawnLoot(this, this.rng, this.quota);
     for (const id of monstersForFloor(floor)) {
       const m = new SPECIES[id](this);
-      const spot = (id === 'spider' ? this.spiderPerch() : null)
+      const spot = (id === 'spider' ? this.spiderPerch(m) : null)
         || this.level.takeSpot(this.rng, { minLiftDist: 20, farthest: true }) || this.level.randomFloorPoint(this.rng);
       m.place(spot);
       this.monsters.push(m);
@@ -286,22 +288,28 @@ class Game {
     else this.beginFloor();
   }
 
-  spiderPerch() {
+  spiderPerch(spider) {
     const level = this.level;
     const candidates = [];
+    // Imported legs span much farther than the body's gameplay catch radius.
+    const size = spider?.custom ? new THREE.Box3().setFromObject(spider.model).getSize(new THREE.Vector3()) : null;
+    const halfX = size ? size.x / 2 + 0.015 : 0.7;
+    const halfZ = size ? size.z / 2 + 0.015 : 0.7;
     for (const [x, z] of level.floorCells) {
       if (level.occupied.has(z * level.W + x) || level.liftField[z * level.W + x] * CELL < 18) continue;
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        if (level.isWallCell(x + dx, z + dz)) candidates.push({ x, z, dx, dz });
+        if (!level.isWallCell(x + dx, z + dz)) continue;
+        const pos = level.cellCenter(x, z);
+        pos.x += dx * (CELL * 0.5 - halfX);
+        pos.z += dz * (CELL * 0.5 - halfZ);
+        if ([-1, 1].some(sx => [-1, 1].some(sz => level.isWallAt(pos.x + sx * halfX, pos.z + sz * halfZ)))) continue;
+        candidates.push({ x, z, pos });
       }
     }
     if (!candidates.length) return null;
     const perch = this.rng.pick(candidates);
     level.occupied.add(perch.z * level.W + perch.x);
-    const pos = level.cellCenter(perch.x, perch.z);
-    pos.x += perch.dx * (CELL * 0.5 - 0.7);
-    pos.z += perch.dz * (CELL * 0.5 - 0.7);
-    return pos;
+    return perch.pos;
   }
 
   facingOutOfLift() {
@@ -337,6 +345,8 @@ class Game {
     $('#notice-floor').textContent = `HOLLOWMERE CATACOMBS · LEVEL B${this.floor}`;
     $('#notice-body').innerHTML = orientation + cards;
     this.screen('notice');
+    $('#notice-body').scrollTop = 0;
+    $('#notice-body').focus({ preventScroll: true });
   }
 
   closeNotice() {
@@ -812,6 +822,7 @@ class Game {
         const push = (0.7 - d) / 2;
         a.pos.x -= (dx / d) * push; a.pos.z -= (dz / d) * push;
         b.pos.x += (dx / d) * push; b.pos.z += (dz / d) * push;
+        a.sync(); b.sync();
       }
     }
 
@@ -912,6 +923,8 @@ class Game {
       p.camera.updateProjectionMatrix();
       // First person: hide your own body (but show your corpse once you're dead).
       for (const q of this.players) q.body.visible = (!q.hidingSpot || q.hidingSpot.kind === 'table') && (q !== p || !q.alive);
+      // Body visibility differs between cameras, so their shadow maps must too.
+      r.shadowMap.needsUpdate = true;
       this.film.render(this.scene, p.camera, {
         index: i, x: i * vw, width: vw, height: h, time: this.time,
         danger: this.dangerFor(p), ...this.picture,

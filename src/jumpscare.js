@@ -2,8 +2,8 @@
 // A separate camera/scene keeps furniture from occluding a grab and keeps the
 // surviving co-op player's view live. Actors are prepared during floor loading.
 import * as THREE from 'three';
-import { instance, Animator } from './assets.js';
-import { createCreatureRig, disposeCreatureRig } from './entities/creature-rigs.js';
+import { Animator } from './assets.js';
+import { disposeCreatureRig } from './entities/creature-rigs.js';
 
 const DURATION = 1.9;
 const clamp = (n) => Math.max(0, Math.min(1, n));
@@ -14,8 +14,7 @@ function stageFor(monster) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x020302);
   const camera = new THREE.PerspectiveCamera(68, 1, 0.025, 12);
-  const source = monster.custom ? instance(kind, { height: monster.height })
-    : (monster.rigFactory || createCreatureRig)(kind, { height: monster.height });
+  const source = monster.createVisual();
   const actor = source.object;
   actor.rotation.y = Math.PI;
   scene.add(actor);
@@ -46,13 +45,14 @@ function stageFor(monster) {
   rim.position.set(0.8, monster.height * 0.95, 2.2);
   scene.add(rim);
   const point = new THREE.Vector3();
-  const stage = { scene, camera, actor, animator, focus, key, rim, point, custom: monster.custom, inner: source.inner };
+  const stage = { scene, camera, actor, animator, focus, key, rim, point, custom: monster.custom, inner: source.inner,
+    disposeVisual: source.dispose, framing: source.design?.jumpscareFraming || {} };
   poseStage(stage, 0, false);
   return stage;
 }
 
 function poseStage(stage, elapsed, reduced) {
-  const { actor, animator, focus, point, camera, key, rim } = stage;
+  const { actor, animator, focus, point, camera, key, rim, framing } = stage;
   const lunge = ease((elapsed - 0.19) / 0.23);
   const finalGrab = ease((elapsed - 1.28) / 0.19);
   const recoil = Math.exp(-Math.max(0, elapsed - 0.38) * 9) * (elapsed >= 0.38 ? 1 : 0);
@@ -67,18 +67,18 @@ function poseStage(stage, elapsed, reduced) {
   focus.getWorldPosition(point);
   // Frame the moving face instead of guessing from antler/body height. The
   // initial view reveals the same silhouette before it rushes into the lens.
-  const faceDistance = 1.6 - lunge * 0.96 - finalGrab * 0.20;
+  const faceDistance = 1.6 - lunge * 0.96 - finalGrab * 0.20 + (framing.distanceOffset || 0);
   actor.position.z = faceDistance - point.z;
   actor.position.x = -point.x * 0.7;
   actor.updateMatrixWorld(true);
   focus.getWorldPosition(point);
   const tremor = reduced ? 0 : lunge * (0.004 + recoil * 0.021);
-  camera.position.set(Math.sin(elapsed * 47) * tremor, point.y - 0.055 - (1 - lunge) * 0.27 + Math.sin(elapsed * 39) * tremor, -recoil * 0.10);
+  camera.position.set(Math.sin(elapsed * 47) * tremor, point.y + (framing.cameraHeight ?? -0.055) - (1 - lunge) * 0.27 + Math.sin(elapsed * 39) * tremor, -recoil * 0.10);
   camera.up.set(reduced ? 0 : Math.sin(elapsed * 27) * recoil * 0.055 + finalGrab * 0.075, 1, 0).normalize();
-  camera.lookAt(point.x * 0.45, point.y - 0.015, point.z);
+  camera.lookAt(point.x * 0.45, point.y + (framing.lookHeight ?? -0.015), point.z);
   camera.fov = 68 - lunge * 12 + recoil * (reduced ? 0 : 5);
   camera.updateProjectionMatrix();
-  key.position.y = point.y - 0.25;
+  key.position.y = point.y + (framing.keyHeight ?? -0.25);
   key.target.position.copy(point);
   // A dying torch reveals skin and wet facial detail without a white flash.
   key.intensity = 10 + lunge * 3 - finalGrab * 6;
@@ -113,7 +113,8 @@ export class Jumpscares {
     const key = this.key(player, monster);
     if (!this.stages.has(key)) this.stages.set(key, stageFor(monster));
     const stage = this.stages.get(key);
-    if (stage.custom) {
+    stage.animator.reset?.();
+    if (stage.custom && !stage.animator.poseJumpscare) {
       const { animator } = stage;
       animator.mixer.stopAllAction();
       animator.current = null;
@@ -166,11 +167,14 @@ export class Jumpscares {
   dispose() {
     this.clear();
     for (const stage of this.stages.values()) {
-      if (stage.custom) {
+      if (stage.disposeVisual) stage.disposeVisual();
+      else if (stage.custom) {
         stage.animator.mixer.stopAllAction();
         stage.animator.mixer.uncacheRoot(stage.inner);
         // GLB geometry, materials and textures belong to the shared asset cache.
-        stage.actor.traverse(node => { if (node.isSkinnedMesh) node.skeleton.dispose(); });
+        const skeletons = new Set();
+        stage.actor.traverse(node => { if (node.isSkinnedMesh) skeletons.add(node.skeleton); });
+        for (const skeleton of skeletons) skeleton.dispose();
       } else disposeCreatureRig(stage.actor);
       stage.key.dispose();
       stage.scene.clear();

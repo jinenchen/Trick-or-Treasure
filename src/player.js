@@ -4,7 +4,8 @@ import { PLAYER, FLASH, NOISE, WALL_H } from './config.js';
 
 const EYE_H = 1.42;
 const PITCH_MIN = -1.2, PITCH_MAX = 1.0;
-import { instance, uniqueMaterials, Animator, pickModel, isCustomModel } from './assets.js';
+import { instance, uniqueMaterials, pickModel, isCustomModel } from './assets.js';
+import { PlayerAvatar } from './player-avatar.js';
 import { labelTexture } from './textures.js';
 
 export const PLAYER_COLORS = ['#c0aa83', '#99b3ad'];
@@ -44,34 +45,26 @@ export class Player {
     this.eyeHeight = EYE_H;
 
     this.group = new THREE.Group();
-    // The Sketchfab business man when downloaded, otherwise the Kenney intern.
+    // The supplied Sketchfab businessman, with the Kenney intern as a fallback.
     const modelName = pickModel('business-man', 'character-keeper');
     const custom = isCustomModel(modelName);
+    this.modelName = modelName;
+    this.standingEyeHeight = custom ? 1.62 : EYE_H;
+    this.eyeHeight = this.standingEyeHeight;
     const { object, inner, animations } = instance(modelName, custom ? { height: 1.75 } : {});
     this.materials = uniqueMaterials(object);
     for (const m of this.materials) {
-      if (custom) {
-        // Keep the suit's own colors; a faint cool tint tells P2 apart.
-        if (index) m.color?.multiply(new THREE.Color(0.85, 0.9, 1.12));
-      } else {
+      if (!custom) {
         m.color?.multiply(new THREE.Color(index ? 0.60 : 0.78, 0.72, index ? 0.72 : 0.55));
         if ('roughness' in m) m.roughness = 0.94;
       }
     }
-    // Your own body is hidden in your own view (see Game.render) and casts no
-    // shadow, so it never blocks your flashlight.
-    object.traverse((o) => { if (o.isMesh) o.castShadow = false; });
-    // `body` is what hiding and first-person code scale and hide; `rig` gets
-    // procedural motion when the model has no animations of its own.
+    // Each camera hides its own live body; visible teammates cast real shadows.
+    object.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     this.body = new THREE.Group();
     this.body.add(object);
     this.rig = object;
-    this.procedural = custom && !animations.length;
-    this.walkPhase = 0;
-    this.deathTime = 0;
     this.group.add(this.body);
-    this.anim = new Animator(inner, animations);
-    this.anim.play('idle');
 
     // Name tag that only your partner's camera can see (through walls).
     this.marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(this.name, this.color), depthTest: false, transparent: true }));
@@ -84,8 +77,8 @@ export class Player {
     this.flash = new THREE.SpotLight(FLASH.color, FLASH.intensity, FLASH.range, FLASH.angle, 0.38, 1.25);
     this.flash.map = flashlightTexture();
     // Beam starts just past the torch in your hand, so the torch isn't lit by its own beam.
-    this.flash.position.set(-0.15, EYE_H - 0.15, 0.75);
-    this.flash.target.position.set(-0.15, EYE_H - 0.15, 8);
+    this.flash.position.set(-0.15, this.eyeHeight - 0.15, 0.75);
+    this.flash.target.position.set(-0.15, this.eyeHeight - 0.15, 8);
     this.flash.castShadow = true;
     this.flash.shadow.mapSize.set(1024, 1024);
     this.flash.shadow.camera.near = 0.2;
@@ -132,6 +125,8 @@ export class Player {
     this.camera.add(this.viewModel);
     world.scene.add(this.camera);
 
+    this.avatar = new PlayerAvatar(this, { object, inner, animations, custom });
+    this.anim = this.avatar.anim;
     world.scene.add(this.group);
   }
 
@@ -202,7 +197,7 @@ export class Player {
     this.hidingRevealed = false;
     this.vel.set(0, 0, 0);
     this.speed = 0;
-    this.eyeHeight = EYE_H;
+    this.eyeHeight = this.standingEyeHeight;
     this.body.scale.y = 1;
     this.marker.visible = true;
     this.sync();
@@ -217,6 +212,8 @@ export class Player {
     this.mapOpen = false;
     this.pos.set(x, 0, z);
     this.vel.set(0, 0, 0);
+    this.speed = 0;
+    this.bob = 0;
     this.yaw = yaw;
     this.pitch = -0.08;
     this.alive = true;
@@ -224,11 +221,9 @@ export class Player {
     this.battery = Math.max(this.battery, this.batteryMax * 0.6);
     this.holding = null;
     this.group.visible = true;
-    this.anim.play('idle', { fade: 0 });
-    this.rig.position.y = 0;
-    this.rig.rotation.set(0, 0, 0);
-    this.deathTime = 0;
     this.sync();
+    this.avatar.reset();
+    this.avatar.update(0);
     this.snapCamera();
   }
 
@@ -239,9 +234,8 @@ export class Player {
       this.lightOn = false;
       this.flash.visible = false;
       this.fill.visible = false;
-      this.anim.update(dt);
-      if (this.procedural) this.animateRig(dt);
       this.sync();
+      this.avatar.update(dt);
       return;
     }
 
@@ -348,35 +342,9 @@ export class Player {
     this.lens.material.color.setHex(on ? 0xfff4d8 : 0x2a2820);
     this.fill.visible = !this.hidingSpot;
     this.marker.visible = !this.hidingSpot;
-    this.body.scale.y = this.hidingSpot?.kind === 'table' ? 0.36 : 1;
-
-    // Animation.
-    const holding = !!this.holding;
-    if (this.speed > PLAYER.walkSpeed * 1.2) this.anim.play('sprint', { timeScale: this.speed / 5 });
-    else if (this.speed > 0.3) this.anim.play('walk', { timeScale: Math.max(0.6, this.speed / 2.6) });
-    else this.anim.play(holding && this.anim.has('holding-both') ? 'holding-both' : 'idle');
-    this.anim.update(dt);
-    if (this.procedural) this.animateRig(dt);
+    this.body.scale.setScalar(1);
     this.sync();
-  }
-
-  // Motion for a model without animation clips: walking bob and sway, a lean
-  // when sprinting, and falling backward on death.
-  animateRig(dt) {
-    const rig = this.rig;
-    if (!this.alive) {
-      this.deathTime += dt;
-      const k = 1 - Math.pow(1 - Math.min(1, this.deathTime / 0.7), 3);
-      rig.rotation.set(-Math.PI / 2 * k, 0, 0);
-      rig.position.y = 0.15 * k;
-      return;
-    }
-    const moving = Math.min(1, this.speed / 1.5);
-    if (this.speed > 0.3) this.walkPhase += dt * (4 + this.speed * 1.6);
-    rig.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.045 * moving;
-    rig.rotation.z = Math.sin(this.walkPhase) * 0.035 * moving;
-    const lean = this.speed > PLAYER.walkSpeed * 1.2 ? 0.14 : 0.04 * moving;
-    rig.rotation.x += (lean - rig.rotation.x) * Math.min(1, dt * 8);
+    this.avatar.update(dt);
   }
 
   sync() {
@@ -393,7 +361,6 @@ export class Player {
     this.speed = 0;
     this.lightOn = false;
     this.camShake = 1;
-    this.deathTime = 0;
     this.anim.play('die', { once: true, fade: 0.1 });
   }
 
@@ -451,6 +418,10 @@ export class Player {
     this.leaveHiding({ force: true, relocate: false });
     this.world.scene.remove(this.group);
     this.world.scene.remove(this.camera);
+    this.avatar.dispose();
+    const skeletons = new Set();
+    this.rig.traverse((node) => { if (node.isSkinnedMesh) skeletons.add(node.skeleton); });
+    for (const skeleton of skeletons) skeleton.dispose();
     this.flash.map.dispose();
     this.flash.dispose();
     this.marker.material.map.dispose();

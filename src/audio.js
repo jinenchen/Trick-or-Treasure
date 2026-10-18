@@ -1,5 +1,5 @@
-// Recorded industrial ambience and scare: DRAGON-STUDIO / Pixabay.
-// See assets/audio/README.md. All other sounds are synthesized locally.
+// Recorded ambience/proximity scare: DRAGON-STUDIO / Pixabay.
+// The attack uses the user's supplied jumpscare recording. See assets/audio/README.md.
 
 const clamp = (value, low = 0, high = 1) => Math.min(high, Math.max(low, Number.isFinite(value) ? value : 0));
 
@@ -19,6 +19,11 @@ export class Sound {
     this.decks = [];
     this.activeDeck = 0;
     this.jumpscares = new Set();
+    this.jumpscareBuffer = null;
+    // This exact recording's opening hit begins at .193 s; skip only its silence.
+    this.jumpscareOffset = 0.185;
+    this.jumpscareLoadState = 'idle';
+    this.jumpscareReady = null;
     this.ambienceLevel = 0.4;
   }
 
@@ -109,22 +114,26 @@ export class Sound {
       .then((buffer) => this.ctx.decodeAudioData(buffer))
       .then((buffer) => {
         this.scareBuffer = buffer;
-        // Locate a strong onset so the recording hits on the creature's lunge,
-        // even when the full source recording begins quietly.
-        const samples = buffer.getChannelData(0);
-        const window = Math.floor(buffer.sampleRate * 0.16);
-        let strongest = 0;
-        this.scareImpactOffset = 0;
-        for (let start = 0; start < samples.length - buffer.sampleRate * 1.5; start += window) {
-          let energy = 0;
-          for (let i = start; i < start + window; i += 8) energy += samples[i] * samples[i];
-          if (energy > strongest) {
-            strongest = energy;
-            this.scareImpactOffset = Math.max(0, start / buffer.sampleRate - 0.03);
-          }
-        }
       })
       .catch(() => { /* Synthesized sting remains available on loading failure. */ });
+
+    // Load independently: a proximity recording failure must not affect attacks.
+    this.jumpscareLoadState = 'loading';
+    this.jumpscareReady = fetch('assets/audio/jumpscare.mp3')
+      .then((response) => {
+        if (!response.ok) throw new Error('Jumpscare audio unavailable');
+        return response.arrayBuffer();
+      })
+      .then((buffer) => this.ctx.decodeAudioData(buffer))
+      .then((buffer) => {
+        this.jumpscareBuffer = buffer;
+        this.jumpscareLoadState = 'ready';
+        return buffer;
+      })
+      .catch(() => {
+        this.jumpscareLoadState = 'failed';
+        return null; // The cancellable synthesized attack remains available.
+      });
   }
 
   playDeck(deck) {
@@ -285,22 +294,31 @@ export class Sound {
         if (stopped || impacted || ctx.state !== 'running' || this.paused || this.hidden) return;
         impacted = true;
         handle._expiresAt = ctx.currentTime + 1.8;
-        if (this.scareBuffer) {
+        if (this.jumpscareBuffer) {
+          // If decoding finished during the windup, cancel its fallback prelude.
+          for (const cancel of voices) cancel();
+          voices.length = 0;
           const source = ctx.createBufferSource();
-          source.buffer = this.scareBuffer;
+          source.buffer = this.jumpscareBuffer;
+          source.playbackRate.value = 1;
+          source.detune.value = 0;
           const envelope = ctx.createGain();
           const t = ctx.currentTime;
-          const offset = this.scareImpactOffset || 0;
-          const duration = Math.min(1.35, this.scareBuffer.duration - offset);
-          envelope.gain.setValueAtTime(0, t);
-          envelope.gain.linearRampToValueAtTime(0.38, t + 0.012);
-          envelope.gain.setValueAtTime(0.32, t + Math.min(0.24, duration * 0.4));
-          envelope.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-          const recordedOutput = this.out(false, 0, body);
+          // Preserve the original opening hit, skipping only its leading silence.
+          // .24 s windup + 1.62 s recording leaves a little visual-end margin.
+          const offset = this.jumpscareOffset;
+          const duration = Math.min(1.62, this.jumpscareBuffer.duration - offset);
+          const fade = Math.min(0.16, duration * 0.25);
+          envelope.gain.setValueAtTime(0.68, t);
+          envelope.gain.setValueAtTime(0.68, t + duration - fade);
+          envelope.gain.linearRampToValueAtTime(0, t + duration);
+          // Preserve the recording's own texture without a synthesized roar or reverb.
+          const recordedOutput = this.out(false, 0, gain);
           source.connect(envelope).connect(recordedOutput);
           voices.push(this.cleanup(source, [envelope], recordedOutput));
           source.start(t, offset);
           source.stop(t + duration);
+          return;
         }
         // This transient starts on the visual lunge, independently of scare() cooldown.
         tone({ freq: 91, slideTo: 34, dur: 0.23, vol: 0.18, attack: 0.009 }, true);
@@ -345,10 +363,12 @@ export class Sound {
     };
     this.jumpscares.add(handle);
     this.mixJumpscares();
-    // An intimate inhale and joint crack precede the lunge, with no room reverb.
-    noise({ freq: kind === 'bacteria-pill' ? 1700 : 850, slideTo: 1350, type: 'bandpass', q: 1.3, dur: 0.23, vol: 0.075, attack: 0.11 }, true);
-    noise({ freq: kind === 'human-deer' ? 1250 : 2100, type: 'bandpass', q: 1.5, dur: 0.026, vol: 0.038, delay: 0.15 }, true);
-    tone({ freq: 210, slideTo: 91, dur: 0.075, vol: 0.027, delay: 0.15 }, true);
+    if (!this.jumpscareBuffer) {
+      // The synthesized windup is only a fallback while the recording is unavailable.
+      noise({ freq: kind === 'bacteria-pill' ? 1700 : 850, slideTo: 1350, type: 'bandpass', q: 1.3, dur: 0.23, vol: 0.075, attack: 0.11 }, true);
+      noise({ freq: kind === 'human-deer' ? 1250 : 2100, type: 'bandpass', q: 1.5, dur: 0.026, vol: 0.038, delay: 0.15 }, true);
+      tone({ freq: 210, slideTo: 91, dur: 0.075, vol: 0.027, delay: 0.15 }, true);
+    }
     return handle;
   }
 
