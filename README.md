@@ -2,6 +2,9 @@
 
 *A GRIMCO Acquisitions retrieval simulator.* 
 
+Hacktoberfest x Hack the 6ix main track winner 
+Play it here: https://trick-or-treasure.vercel.app/
+
 A co-op first-person horror looting in the browser, where underpaid interns descend into Hollowmere's abandoned industrial catacombs, recover cursed valuables and make quota before midnight. Fragile loot loses value when it strikes a wall; heavy coffins need two interns.
 
 ## Play
