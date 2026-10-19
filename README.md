@@ -2,9 +2,7 @@
 
 *A GRIMCO Acquisitions retrieval simulator.* 
 
-Co-op first-person horror looting in the browser, inspired by **R.E.P.O.** and **Threshold**, with a grimy, desaturated presentation inspired by **Buckshot Roulette**. Underpaid interns descend into Hollowmere's abandoned industrial catacombs, recover cursed valuables and make quota before midnight. Fragile loot loses value when it strikes a wall; heavy coffins need two interns.
-
-The facility has leaking pipe joints, falling droplets, puddle ripples, wet wall streaks, corroded fittings and overhead cable runs. Fluorescents sag, cut out and struggle to restart independently, while the elevator keeps a steady light. Distressed hand-painted warnings, tally marks, handprints, scratches and crumbling walls tell the story of previous crews. A low-resolution camera pass adds grain, dithering, vignette and restrained lens distortion. Exposure and reduced grain/lens effects are adjustable from the title and pause screens; the system's reduced-motion preference softens the light failures.
+A co-op first-person horror looting in the browser, where underpaid interns descend into Hollowmere's abandoned industrial catacombs, recover cursed valuables and make quota before midnight. Fragile loot loses value when it strikes a wall; heavy coffins need two interns.
 
 ## Play
 
