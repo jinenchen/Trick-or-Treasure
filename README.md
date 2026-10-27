@@ -109,9 +109,6 @@ To add a specimen, follow `src/entities/skeleton.js`, provide its notice, regist
 
 The radio uses local canned lines. For live Gemma responses, deploy `tools/gemma-boss-worker.js` with a Google AI Studio key and set `BOSS_AI_URL` in `src/config.js`. Failed or slow requests fall back to local lines.
 
-## Deploy
-
-GitHub Pages: repository **Settings > Pages > Deploy from branch > `main` / root**. Everything is static.
 
 ## Credits
 
